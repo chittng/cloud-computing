@@ -5,6 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { databaseOptions } from "../src/database/database-options.ts";
 import { connectDatabase } from "../src/database/data-source.ts";
 import { RootModule } from "../src/root.module.ts";
+import { seedData } from "../src/database/seed-data.ts";
+import { compare } from "bcryptjs";
+import request from "supertest";
 
 describe("MySQL integration (dedicated disposable *_test database)", () => {
   let source: DataSource;
@@ -44,6 +47,38 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
 
   it("records migrations and does not reapply them", async () => {
     expect(await source.runMigrations()).toEqual([]);
+  });
+
+  it("seeds two users with valid hashes and owned tasks without overwriting on rerun", async () => {
+    await seedData(source, "Test-only-password");
+    const first = await source.query<{ id: string; email: string; password_hash: string }[]>(
+      "SELECT id, email, password_hash FROM users WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test') ORDER BY email",
+    );
+    expect(first).toHaveLength(2);
+    for (const user of first)
+      expect(await compare("Test-only-password", user.password_hash)).toBe(true);
+    await seedData(source, "Different-password");
+    expect(
+      await source.query(
+        "SELECT id, email, password_hash FROM users WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test') ORDER BY email",
+      ),
+    ).toEqual(first);
+    const tasks = await source.query<{ title: string }[]>(
+      "SELECT title FROM tasks JOIN users ON users.id = tasks.user_id WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test')",
+    );
+    expect(tasks).toHaveLength(2);
+    await expect(seedData(source, "short")).rejects.toThrow("SEED_PASSWORD");
+  });
+
+  it("serves a healthy HTTP response through the real CLOUD-6 data source", async () => {
+    const http = await NestFactory.create(RootModule, { logger: false });
+    try {
+      await http.init();
+      const response = await request(http.getHttpServer()).get("/health").expect(200);
+      expect(response.body.database).toBe("up");
+    } finally {
+      await http.close();
+    }
   });
 
   it("creates the designed columns, constraints and indexes", async () => {

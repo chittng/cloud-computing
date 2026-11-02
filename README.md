@@ -100,6 +100,14 @@ credentials in `.env` does not change users in an existing database volume.
 
 ## Database migrations
 
+After migrating, set `SEED_PASSWORD` (8–72 UTF-8 bytes) in your shell or local `.env`
+and run `pnpm db:seed`. This creates `alice.seed@example.test` and
+`bob.seed@example.test`, with bcrypt password hashes and one owned sample task each.
+Running the seed again skips existing sample accounts and preserves their passwords,
+tasks and edits. It does not recreate deleted sample tasks for existing accounts.
+The seed runs explicitly, uses the same connection settings as migrations and the
+backend, and never changes the schema. Sample accounts are intended for local tests.
+
 The initial migration implements the schema in
 [docs/database-design.md](./docs/database-design.md). Run from the repository root:
 

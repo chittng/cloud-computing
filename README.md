@@ -63,8 +63,11 @@ pnpm build
 pnpm start
 ```
 
-The initial module has no HTTP routes. Requests to `/` currently return `404`;
-`/health` will be added in a later work item.
+`GET /health` is public and probes the same MySQL connection pool used by the app.
+It returns `200` with `status: "ok"` and `database: "up"`, or `503` with
+`status: "error"` and `database: "down"` when the query fails. Both responses include
+`version` and a UTC `timestamp`; connection details are never returned.
+Requests to `/` currently return `404`. Production verification awaits CLOUD-34.
 
 ## Configuration and logs
 

@@ -3,3 +3,10 @@
 .DS_Store
 
 /.idea/
+
+/dist/
+/coverage/
+/*.tsbuildinfo
+.env
+.env.*
+!.env.example

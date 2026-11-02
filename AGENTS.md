@@ -5,7 +5,9 @@ A personal task management web app for a university Cloud Computing course.
 ## Project layout
 
 - `src/`: Application source code.
+- `src/database/migrations/`: Explicit TypeORM migrations; schema synchronization is disabled.
 - `test/`: End-to-end tests.
+- `compose.yaml`: Local MySQL service and persistent volume.
 
 ## Project workflow
 

@@ -1,0 +1,29 @@
+# Dependency and build artifacts
+node_modules
+dist
+coverage
+*.tsbuildinfo
+
+# Sensitive files and credentials
+.env
+.env.*
+*.env
+*.local
+
+# Version control and editor
+.git
+.gitignore
+.gitattributes
+.DS_Store
+.idea
+.vscode
+
+# Test suites and documentation
+test
+docs
+
+# Logs and linter configurations
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.oxlintrc.json

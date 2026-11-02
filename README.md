@@ -186,6 +186,44 @@ The named volume survives container recreation and `docker compose down`.
 `docker compose down --volumes` deletes that stored database. Verification evidence
 for CLOUD-6 is recorded in [docs/cloud-6-verification.md](./docs/cloud-6-verification.md).
 
+## Docker packaging and containerized operation
+
+The application is containerized using a multi-stage Docker build targeting Node 24 and Alpine Linux.
+
+Build the tagged image:
+
+```sh
+docker build -t cloud-computing:1.0.0 -t cloud-computing:latest .
+```
+
+Start the application and MySQL services together using Docker Compose:
+
+```sh
+docker compose up -d
+```
+
+Run database migrations and sample seeder inside the running application container:
+
+```sh
+docker compose exec app node dist/database/migrate.js up
+docker compose exec app node dist/database/seed.js
+```
+
+Verify service availability via the HTTP health endpoint:
+
+```sh
+curl http://localhost:3000/health
+```
+
+To stop services while preserving the database volume:
+
+```sh
+docker compose down
+```
+
+Verification details and two-person testing evidence are documented in
+[docs/cloud-15-verification.md](./docs/cloud-15-verification.md).
+
 ## Development commands
 
 | Command             | Purpose                                 |

@@ -1,7 +1,7 @@
 # API Specification – Personal Task Manager
 
 **Task:** CLOUD-38  
-**Database:** MySQL  
+**Database:** MySQL 8.0.16 trở lên (thiết kế chi tiết ở CLOUD-5)  
 **API version:** v1  
 **Base URL:** `/api/v1`
 
@@ -16,12 +16,12 @@
 | `id` | Số nguyên dương, tương ứng kiểu `BIGINT` trong MySQL |
 | `due_date` | Chuỗi `YYYY-MM-DD`, không bao gồm giờ, tương ứng kiểu `DATE` |
 | `created_at`, `updated_at` | Thời điểm UTC, trả về theo ISO 8601, ví dụ `2026-10-31T08:00:00Z` |
-| `status` | `pending` hoặc `completed` |
+| `status` | `pending` hoặc `completed` (chữ thường, đúng chính tả) |
 | Xác thực | Header `Authorization: Bearer <token>` |
 
 ### 1.1. Quy ước dữ liệu MySQL
 
-Database sử dụng MySQL với engine InnoDB.
+Database sử dụng MySQL 8.0.16 trở lên với engine InnoDB, character set `utf8mb4`.
 
 | Trường API | Kiểu dữ liệu MySQL | Ghi chú |
 |---|---|---|
@@ -37,9 +37,9 @@ Database sử dụng MySQL với engine InnoDB.
 | `created_at` | `DATETIME` | Lưu thời điểm UTC |
 | `updated_at` | `DATETIME` | Lưu thời điểm UTC |
 
-**Quy ước thời gian:** MySQL `DATETIME` không tự lưu thông tin múi giờ. Backend chịu trách nhiệm tạo và lưu giá trị UTC, đồng thời diễn giải dữ liệu đọc từ database là UTC. API chuyển thời điểm này thành chuỗi ISO 8601 có hậu tố `Z`.
+**Quy ước thời gian:** MySQL `DATETIME` không tự lưu thông tin múi giờ. Hệ thống quy ước giá trị lưu trong database là UTC: kết nối từ backend đến MySQL đặt múi giờ `+00:00` để `CURRENT_TIMESTAMP` của `DEFAULT` và `ON UPDATE` cũng ra giờ UTC. Backend diễn giải dữ liệu đọc từ database là UTC và chuyển thành chuỗi ISO 8601 có hậu tố `Z`.
 
-**Quy ước ID:** API trả `id` dưới dạng số nguyên JSON trong phạm vi giá trị an toàn của JavaScript (`Number.MAX_SAFE_INTEGER`). Backend cần xử lý cẩn thận khi đọc `BIGINT` từ MySQL; nếu ID có thể vượt giới hạn này, cần chuyển sang trả ID dưới dạng chuỗi để tránh mất độ chính xác.
+**Quy ước ID:** API trả `id` dưới dạng số nguyên JSON trong phạm vi giá trị an toàn của JavaScript (`Number.MAX_SAFE_INTEGER`). Backend cần xử lý cẩn thận khi đọc `BIGINT` từ MySQL (một số driver trả `BIGINT` dưới dạng chuỗi, cần chuyển về số); nếu ID có thể vượt giới hạn này, cần chuyển sang trả ID dưới dạng chuỗi để tránh mất độ chính xác.
 
 ## 2. Danh sách endpoint
 
@@ -93,7 +93,7 @@ Ví dụ:
 
 - Không trả về `password` hoặc `password_hash`.
 - Đăng ký thành công không tự động đăng nhập.
-- Email được chuẩn hóa trước khi lưu vào MySQL.
+- Email được chuẩn hóa (trim, chữ thường) trước khi lưu vào MySQL.
 - Nếu email đã tồn tại, trả về `409 Conflict` với mã lỗi `EMAIL_ALREADY_EXISTS`.
 
 ### 3.2. Đăng nhập
@@ -102,10 +102,10 @@ Ví dụ:
 
 **Request body:**
 
-| Trường | Kiểu | Bắt buộc |
-|---|---|---|
-| `email` | string | Có |
-| `password` | string | Có |
+| Trường | Kiểu | Bắt buộc | Quy tắc |
+|---|---|---|---|
+| `email` | string | Có | Trim và chuyển chữ thường trước khi tra cứu, giống bước chuẩn hóa khi đăng ký |
+| `password` | string | Có | Không trim; so khớp với `password_hash` |
 
 Ví dụ:
 
@@ -311,8 +311,9 @@ Quy tắc:
 - Không cho phép thay đổi `id`, `user_id`, `created_at` hoặc `updated_at` thông qua request.
 - Các trường hệ thống được gửi lên sẽ bị bỏ qua.
 - Backend chỉ cập nhật công việc thuộc người dùng hiện tại.
-- `updated_at` được cập nhật khi dữ liệu thực sự thay đổi. Với MySQL, có thể sử dụng `ON UPDATE CURRENT_TIMESTAMP` trong định nghĩa cột.
-- Nếu gửi lại giá trị không thay đổi, `updated_at` có thể giữ nguyên.
+- `updated_at` được cập nhật khi dữ liệu thực sự thay đổi. Cột `updated_at` được định nghĩa với `ON UPDATE CURRENT_TIMESTAMP` trong MySQL (xem CLOUD-5), nên backend không cần tự gán giá trị này.
+- Nếu gửi lại giá trị không thay đổi, `updated_at` giữ nguyên.
+- Vì MySQL trả về số dòng bị ảnh hưởng bằng 0 khi giá trị không đổi, backend không được dùng "affected rows = 0" để kết luận công việc không tồn tại. Cần kiểm tra sự tồn tại của công việc bằng truy vấn riêng, hoặc đọc lại bản ghi theo `WHERE id = ? AND user_id = ?` sau khi cập nhật.
 
 Lỗi:
 
@@ -390,9 +391,11 @@ Backend phải kiểm tra dữ liệu trước khi thực hiện truy vấn ho�
 | Request body phải là JSON hợp lệ và có kiểu object | Mọi endpoint có body |
 | Trim hai đầu chuỗi trước khi kiểm tra và lưu | `email`, `title`, `display_name` |
 | Chuỗi rỗng sau trim không hợp lệ | `title`, `email`, `password` (mật khẩu không trim) |
+| Chuẩn hóa email (trim, chữ thường) | Cả đăng ký và đăng nhập |
 | Sai kiểu dữ liệu | Trả `400`, kèm tên trường |
 | Trường không được hỗ trợ trong body | Bỏ qua, không báo lỗi |
 | `due_date` | Phải khớp `YYYY-MM-DD` và là ngày có thật; ví dụ `2026-02-30` không hợp lệ |
+| `status` | So khớp chính xác `pending` hoặc `completed` (phân biệt hoa thường) |
 | Ngày quá khứ | Được phép |
 | `{id}` trên URL | Phải là số nguyên dương |
 | PATCH không có trường hợp lệ | Trả `400` |
@@ -404,8 +407,10 @@ Backend phải kiểm tra dữ liệu trước khi thực hiện truy vấn ho�
 **Lưu ý về MySQL:**
 
 - Không chỉ dựa vào validation ở backend; các ràng buộc `NOT NULL`, `UNIQUE`, `FOREIGN KEY`, `CHECK` vẫn được duy trì ở database.
-- Khi sử dụng MySQL 8.0.16 trở lên, các ràng buộc `CHECK` được thực thi.
+- Ràng buộc `CHECK` chỉ được thực thi từ MySQL 8.0.16. Trên bản cũ hơn, MySQL chấp nhận cú pháp nhưng bỏ qua ràng buộc.
+- Collation mặc định `utf8mb4_0900_ai_ci` không phân biệt hoa thường, nên `UNIQUE (email)` đã chặn email trùng khác hoa thường. Cột `status` dùng collation `utf8mb4_bin` để `CHECK` phân biệt hoa thường.
 - Khi có lỗi duplicate key (MySQL error `1062`) ở email, backend ánh xạ thành `409 EMAIL_ALREADY_EXISTS`.
+- Khi ghi task mà MySQL báo lỗi khóa ngoại (MySQL error `1452`, `user_id` không còn tồn tại trong `users`), backend ánh xạ thành `401 UNAUTHORIZED`, thống nhất với quy tắc "token còn hạn nhưng user đã bị xóa" ở mục 6.2. Không để lỗi này trở thành `500`.
 - Các truy vấn phải sử dụng parameterized queries hoặc prepared statements để tránh SQL injection.
 
 ## 5. Mã trạng thái và cấu trúc lỗi
@@ -464,7 +469,7 @@ Sau khi đăng nhập thành công:
 
 - Backend tạo JWT và ký bằng thuật toán HS256.
 - Payload gồm:
-  - `sub`: ID của user.
+  - `sub`: ID của user, biểu diễn dạng chuỗi (ví dụ `"1"`) theo RFC 7519, nơi `sub` là chuỗi. Backend chuyển lại thành số nguyên khi dùng làm `user_id`.
   - `iat`: Thời điểm phát hành token.
   - `exp`: Thời điểm hết hạn token.
 - Thời hạn mặc định là 3600 giây, có thể cấu hình bằng biến môi trường.
@@ -496,7 +501,7 @@ Phiên bản hiện tại không triển khai refresh token hoặc đăng xuất
 | Không cho client chỉ định chủ sở hữu | Bỏ qua `user_id` trong request body |
 | Công việc của người khác trả `404`, không phải `403` | Không tiết lộ sự tồn tại của ID |
 | Không có vai trò admin | Mọi user có quyền ngang nhau |
-| Token còn hạn nhưng user đã bị xóa | Trả `401` |
+| Token còn hạn nhưng user đã bị xóa | Trả `401`: bước xác thực kiểm tra user còn tồn tại trong `users`; với thao tác ghi, lỗi khóa ngoại `1452` cũng được ánh xạ thành `401` |
 
 Ví dụ truy vấn MySQL khi lấy công việc:
 
@@ -538,6 +543,7 @@ Các tình huống sau cần được kiểm thử và ghi nhận trong `docs/te
 | A4 | User B gọi `GET /tasks` | Không chứa task của User A |
 | A5 | Tạo task kèm `"user_id": 1` trong body | Task thuộc user trong token |
 | A6 | Token hết hạn hoặc bị sửa một ký tự | `401` |
+| A7 | Token còn hạn nhưng user đã bị xóa khỏi database, gọi `GET /tasks` và `POST /tasks` | `401` cho cả hai, không phải `500` |
 
 ## 7. Đối chiếu với thiết kế database CLOUD-5
 
@@ -545,25 +551,27 @@ Phần này đảm bảo API CLOUD-38 thống nhất với thiết kế database
 
 | # | Nội dung | Thiết kế DB (CLOUD-5) | API (CLOUD-38) | Kết luận |
 |---|---|---|---|---|
-| 1 | `status` | `pending` / `completed`, có CHECK | Chỉ chấp nhận hai giá trị này; sai trả `400` | Khớp |
+| 1 | `status` | `pending` / `completed`, có CHECK; cột dùng collation `utf8mb4_bin` | Chỉ chấp nhận hai giá trị này, phân biệt hoa thường; sai trả `400` | Khớp |
 | 2 | Hạn công việc | `due_date DATE NULL` | Chuỗi `YYYY-MM-DD`, cho phép `null` | Khớp |
 | 3 | ID | `BIGINT AUTO_INCREMENT` | Số nguyên JSON trong phạm vi an toàn của JavaScript | Khớp với giả định quy mô project; cần chuyển sang chuỗi nếu vượt giới hạn an toàn |
 | 4 | `title` | `VARCHAR(255) NOT NULL`, CHECK không rỗng | Từ 1 đến 255 ký tự sau trim | Khớp |
-| 5 | `description` | `TEXT NULL` | Tối đa 10.000 ký tự | API giới hạn chặt hơn DB để kiểm soát dữ liệu đầu vào |
-| 6 | Email | `VARCHAR(255)`, UNIQUE, NOT NULL | Trim, chuyển chữ thường, trùng trả `409` | Khớp; backend cần bắt lỗi duplicate key `1062` |
+| 5 | `description` | `TEXT NULL` (tối đa 65.535 byte) | Tối đa 10.000 ký tự (tối đa 40.000 byte với `utf8mb4`) | API giới hạn chặt hơn DB để kiểm soát dữ liệu đầu vào; luôn nằm trong sức chứa của cột |
+| 6 | Email | `VARCHAR(255)`, `UNIQUE (email)` với collation không phân biệt hoa thường, NOT NULL | Trim, chuyển chữ thường (cả đăng ký và đăng nhập), trùng trả `409` | Khớp; backend cần bắt lỗi duplicate key `1062` |
 | 7 | Mật khẩu | `password_hash VARCHAR(255)` | Mật khẩu đầu vào từ 8 đến 72 byte | Khớp; hash được lưu trong cột `password_hash` |
 | 8 | `display_name` | `VARCHAR(100) NULL` | Tùy chọn, tối đa 100 ký tự | Khớp |
 | 9 | `user_id` | `BIGINT NOT NULL`, FK tới `users.id` | Lấy từ token, không nhận từ client | Khớp và là điểm bảo mật quan trọng |
-| 10 | Sắp xếp danh sách | Index `(user_id, status, due_date)` | `due_date` tăng dần, NULL cuối | Chọn cách sắp xếp NULL cuối; MySQL có thể dùng `filesort` |
+| 10 | Sắp xếp danh sách | Index `(user_id, status, due_date)`; truy vấn Q2, Q3 dùng `ORDER BY due_date IS NULL, due_date, id` | `due_date` tăng dần, NULL cuối, cùng hạn theo `id` | Khớp; MySQL có thể dùng `filesort` (xem 7.1) |
 | 11 | Lọc trạng thái | Index hỗ trợ truy vấn theo user và status | `?status=pending` hoặc `?status=completed` | Khớp |
 | 12 | Phân trang | Chưa triển khai | Chưa triển khai, trả toàn bộ danh sách | Chấp nhận vì phạm vi project và quy mô dữ liệu nhỏ |
 | 13 | Xóa công việc | Hard delete | DELETE trả `204`, xóa thật | Khớp |
 | 14 | Xóa tài khoản và CASCADE | `ON DELETE CASCADE` | Chưa có endpoint xóa user | Khớp; CASCADE áp dụng khi user bị xóa trực tiếp ở DB |
-| 15 | `updated_at` | `DATETIME`, cập nhật bằng `ON UPDATE CURRENT_TIMESTAMP` | Trả về trong response | Khớp; MySQL chỉ cập nhật khi dữ liệu thực sự thay đổi |
-| 16 | Múi giờ | `DATETIME` lưu giá trị UTC | API trả ISO 8601 có hậu tố `Z` | Khớp nếu backend thống nhất ghi và đọc dữ liệu theo UTC |
-| 17 | Ràng buộc DB | CHECK, FK, UNIQUE | Backend validate trước khi ghi | Khớp; ràng buộc DB là lớp bảo vệ cuối cùng |
+| 15 | `updated_at` | `DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | Trả về trong response; không nhận từ client | Khớp; MySQL chỉ cập nhật khi dữ liệu thực sự thay đổi |
+| 16 | Múi giờ | `DATETIME` lưu giá trị UTC; kết nối đặt `time_zone = '+00:00'` | API trả ISO 8601 có hậu tố `Z` | Khớp nếu backend thống nhất ghi và đọc dữ liệu theo UTC |
+| 17 | Ràng buộc DB | CHECK, FK, UNIQUE (CHECK cần MySQL 8.0.16 trở lên) | Backend validate trước khi ghi | Khớp; ràng buộc DB là lớp bảo vệ cuối cùng |
 | 18 | Tính năng chưa triển khai | Chưa có `deleted_at`, tìm kiếm, sắp xếp theo `created_at` | API không cung cấp các tính năng này | Khớp với phạm vi hiện tại |
 | 19 | `/health` | Không cần bảng riêng | Kiểm tra kết nối bằng `SELECT 1` | Khớp |
+| 20 | User bị xóa khi token còn hạn | FK `tasks.user_id` báo lỗi `1452` khi tạo task cho user không tồn tại | Trả `401 UNAUTHORIZED` | Khớp; backend ánh xạ lỗi `1452` thành `401` và kiểm tra user tồn tại ở bước xác thực |
+| 21 | Phiên bản MySQL | MySQL 8.0.16 trở lên, InnoDB, `utf8mb4` | Cùng yêu cầu | Khớp; Docker image cần dùng `mysql:8.0` trở lên |
 
 ### 7.1. Quyết định về sắp xếp `due_date`
 
@@ -603,11 +611,11 @@ Database sử dụng `DATETIME` để lưu thời điểm UTC.
 
 Backend chịu trách nhiệm:
 
-1. Tạo thời điểm theo UTC khi thêm hoặc cập nhật dữ liệu.
+1. Đặt múi giờ kết nối MySQL là UTC để `DEFAULT CURRENT_TIMESTAMP` và `ON UPDATE CURRENT_TIMESTAMP` ghi giờ UTC.
 2. Đọc giá trị `DATETIME` và diễn giải theo UTC.
 3. Chuyển thành ISO 8601 có hậu tố `Z` khi trả response.
 
-Không sử dụng `DATE` cho `created_at` hoặc `updated_at`, vì hai trường này cần lưu cả ngày và giờ.
+Không sử dụng `DATE` cho `created_at` hoặc `updated_at`, vì hai trường này cần lưu cả ngày và giờ. Không dùng `TIMESTAMP` vì giá trị bị chuyển đổi theo múi giờ của session và có giới hạn năm 2038.
 
 ## 8. Phạm vi triển khai
 

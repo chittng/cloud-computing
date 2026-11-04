@@ -1,7 +1,5 @@
-# API Specification – Personal Task Manager
+# API Specification
 
-**Task:** CLOUD-38  
-**Database:** MySQL 8.0.16 trở lên (thiết kế chi tiết ở CLOUD-5)  
 **API version:** v1  
 **Base URL:** `/api/v1`
 
@@ -18,28 +16,6 @@
 | `created_at`, `updated_at` | Thời điểm UTC, trả về theo ISO 8601, ví dụ `2026-10-31T08:00:00Z` |
 | `status` | `pending` hoặc `completed` (chữ thường, đúng chính tả) |
 | Xác thực | Header `Authorization: Bearer <token>` |
-
-### 1.1. Quy ước dữ liệu MySQL
-
-Database sử dụng MySQL 8.0.16 trở lên với engine InnoDB, character set `utf8mb4`.
-
-| Trường API | Kiểu dữ liệu MySQL | Ghi chú |
-|---|---|---|
-| `id` | `BIGINT AUTO_INCREMENT` | Khóa chính |
-| `user_id` | `BIGINT` | Khóa ngoại tham chiếu `users.id` |
-| `email` | `VARCHAR(255)` | Không được trùng |
-| `password_hash` | `VARCHAR(255)` | Lưu mật khẩu đã mã hóa |
-| `display_name` | `VARCHAR(100)` | Có thể NULL |
-| `title` | `VARCHAR(255)` | Không được để trống |
-| `description` | `TEXT` | Có thể NULL |
-| `due_date` | `DATE` | Có thể NULL |
-| `status` | `VARCHAR(20)` | `pending` hoặc `completed` |
-| `created_at` | `DATETIME` | Lưu thời điểm UTC |
-| `updated_at` | `DATETIME` | Lưu thời điểm UTC |
-
-**Quy ước thời gian:** MySQL `DATETIME` không tự lưu thông tin múi giờ. Hệ thống quy ước giá trị lưu trong database là UTC: kết nối từ backend đến MySQL đặt múi giờ `+00:00` để `CURRENT_TIMESTAMP` của `DEFAULT` và `ON UPDATE` cũng ra giờ UTC. Backend diễn giải dữ liệu đọc từ database là UTC và chuyển thành chuỗi ISO 8601 có hậu tố `Z`.
-
-**Quy ước ID:** API trả `id` dưới dạng số nguyên JSON trong phạm vi giá trị an toàn của JavaScript (`Number.MAX_SAFE_INTEGER`). Backend cần xử lý cẩn thận khi đọc `BIGINT` từ MySQL (một số driver trả `BIGINT` dưới dạng chuỗi, cần chuyển về số); nếu ID có thể vượt giới hạn này, cần chuyển sang trả ID dưới dạng chuỗi để tránh mất độ chính xác.
 
 ## 2. Danh sách endpoint
 
@@ -91,7 +67,7 @@ Ví dụ:
 }
 ```
 
-- Không trả về `password` hoặc `password_hash`.
+- Không trả về trường `password` chứa mật khẩu đã hash.
 - Đăng ký thành công không tự động đăng nhập.
 - Email được chuẩn hóa (trim, chữ thường) trước khi lưu vào MySQL.
 - Nếu email đã tồn tại, trả về `409 Conflict` với mã lỗi `EMAIL_ALREADY_EXISTS`.
@@ -105,7 +81,7 @@ Ví dụ:
 | Trường | Kiểu | Bắt buộc | Quy tắc |
 |---|---|---|---|
 | `email` | string | Có | Trim và chuyển chữ thường trước khi tra cứu, giống bước chuẩn hóa khi đăng ký |
-| `password` | string | Có | Không trim; so khớp với `password_hash` |
+| `password` | string | Có | Không trim; xác minh với hash trong cột `password` |
 
 Ví dụ:
 
@@ -408,7 +384,7 @@ Backend phải kiểm tra dữ liệu trước khi thực hiện truy vấn ho�
 
 - Không chỉ dựa vào validation ở backend; các ràng buộc `NOT NULL`, `UNIQUE`, `FOREIGN KEY`, `CHECK` vẫn được duy trì ở database.
 - Ràng buộc `CHECK` chỉ được thực thi từ MySQL 8.0.16. Trên bản cũ hơn, MySQL chấp nhận cú pháp nhưng bỏ qua ràng buộc.
-- Collation mặc định `utf8mb4_0900_ai_ci` không phân biệt hoa thường, nên `UNIQUE (email)` đã chặn email trùng khác hoa thường. Cột `status` dùng collation `utf8mb4_bin` để `CHECK` phân biệt hoa thường.
+- Collation mặc định `utf8mb4_unicode_ci` không phân biệt hoa thường, nên `UNIQUE (email)` đã chặn email trùng khác hoa thường. Cột `status` dùng collation `utf8mb4_bin` để `CHECK` phân biệt hoa thường.
 - Khi có lỗi duplicate key (MySQL error `1062`) ở email, backend ánh xạ thành `409 EMAIL_ALREADY_EXISTS`.
 - Khi ghi task mà MySQL báo lỗi khóa ngoại (MySQL error `1452`, `user_id` không còn tồn tại trong `users`), backend ánh xạ thành `401 UNAUTHORIZED`, thống nhất với quy tắc "token còn hạn nhưng user đã bị xóa" ở mục 6.2. Không để lỗi này trở thành `500`.
 - Các truy vấn phải sử dụng parameterized queries hoặc prepared statements để tránh SQL injection.
@@ -485,7 +461,7 @@ Authorization: Bearer <token>
 
 - Không đưa `JWT_SECRET` lên Git.
 - Chỉ khai báo tên biến trong `.env.example`, không đưa giá trị bí mật thật.
-- Mật khẩu phải được hash bằng bcrypt hoặc Argon2 trước khi lưu vào `password_hash`.
+- Mật khẩu phải được hash bằng bcrypt hoặc Argon2 trước khi lưu vào cột `password`.
 - Không ghi mật khẩu hoặc token vào log.
 - Khi triển khai cloud, nên sử dụng HTTPS để bảo vệ dữ liệu truyền qua mạng.
 
@@ -545,33 +521,7 @@ Các tình huống sau cần được kiểm thử và ghi nhận trong `docs/te
 | A6 | Token hết hạn hoặc bị sửa một ký tự | `401` |
 | A7 | Token còn hạn nhưng user đã bị xóa khỏi database, gọi `GET /tasks` và `POST /tasks` | `401` cho cả hai, không phải `500` |
 
-## 7. Đối chiếu với thiết kế database CLOUD-5
-
-Phần này đảm bảo API CLOUD-38 thống nhất với thiết kế database trong CLOUD-5.
-
-| # | Nội dung | Thiết kế DB (CLOUD-5) | API (CLOUD-38) | Kết luận |
-|---|---|---|---|---|
-| 1 | `status` | `pending` / `completed`, có CHECK; cột dùng collation `utf8mb4_bin` | Chỉ chấp nhận hai giá trị này, phân biệt hoa thường; sai trả `400` | Khớp |
-| 2 | Hạn công việc | `due_date DATE NULL` | Chuỗi `YYYY-MM-DD`, cho phép `null` | Khớp |
-| 3 | ID | `BIGINT AUTO_INCREMENT` | Số nguyên JSON trong phạm vi an toàn của JavaScript | Khớp với giả định quy mô project; cần chuyển sang chuỗi nếu vượt giới hạn an toàn |
-| 4 | `title` | `VARCHAR(255) NOT NULL`, CHECK không rỗng | Từ 1 đến 255 ký tự sau trim | Khớp |
-| 5 | `description` | `TEXT NULL` (tối đa 65.535 byte) | Tối đa 10.000 ký tự (tối đa 40.000 byte với `utf8mb4`) | API giới hạn chặt hơn DB để kiểm soát dữ liệu đầu vào; luôn nằm trong sức chứa của cột |
-| 6 | Email | `VARCHAR(255)`, `UNIQUE (email)` với collation không phân biệt hoa thường, NOT NULL | Trim, chuyển chữ thường (cả đăng ký và đăng nhập), trùng trả `409` | Khớp; backend cần bắt lỗi duplicate key `1062` |
-| 7 | Mật khẩu | `password_hash VARCHAR(255)` | Mật khẩu đầu vào từ 8 đến 72 byte | Khớp; hash được lưu trong cột `password_hash` |
-| 8 | `display_name` | `VARCHAR(100) NULL` | Tùy chọn, tối đa 100 ký tự | Khớp |
-| 9 | `user_id` | `BIGINT NOT NULL`, FK tới `users.id` | Lấy từ token, không nhận từ client | Khớp và là điểm bảo mật quan trọng |
-| 10 | Sắp xếp danh sách | Index `(user_id, status, due_date)`; truy vấn Q2, Q3 dùng `ORDER BY due_date IS NULL, due_date, id` | `due_date` tăng dần, NULL cuối, cùng hạn theo `id` | Khớp; MySQL có thể dùng `filesort` (xem 7.1) |
-| 11 | Lọc trạng thái | Index hỗ trợ truy vấn theo user và status | `?status=pending` hoặc `?status=completed` | Khớp |
-| 12 | Phân trang | Chưa triển khai | Chưa triển khai, trả toàn bộ danh sách | Chấp nhận vì phạm vi project và quy mô dữ liệu nhỏ |
-| 13 | Xóa công việc | Hard delete | DELETE trả `204`, xóa thật | Khớp |
-| 14 | Xóa tài khoản và CASCADE | `ON DELETE CASCADE` | Chưa có endpoint xóa user | Khớp; CASCADE áp dụng khi user bị xóa trực tiếp ở DB |
-| 15 | `updated_at` | `DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | Trả về trong response; không nhận từ client | Khớp; MySQL chỉ cập nhật khi dữ liệu thực sự thay đổi |
-| 16 | Múi giờ | `DATETIME` lưu giá trị UTC; kết nối đặt `time_zone = '+00:00'` | API trả ISO 8601 có hậu tố `Z` | Khớp nếu backend thống nhất ghi và đọc dữ liệu theo UTC |
-| 17 | Ràng buộc DB | CHECK, FK, UNIQUE (CHECK cần MySQL 8.0.16 trở lên) | Backend validate trước khi ghi | Khớp; ràng buộc DB là lớp bảo vệ cuối cùng |
-| 18 | Tính năng chưa triển khai | Chưa có `deleted_at`, tìm kiếm, sắp xếp theo `created_at` | API không cung cấp các tính năng này | Khớp với phạm vi hiện tại |
-| 19 | `/health` | Không cần bảng riêng | Kiểm tra kết nối bằng `SELECT 1` | Khớp |
-| 20 | User bị xóa khi token còn hạn | FK `tasks.user_id` báo lỗi `1452` khi tạo task cho user không tồn tại | Trả `401 UNAUTHORIZED` | Khớp; backend ánh xạ lỗi `1452` thành `401` và kiểm tra user tồn tại ở bước xác thực |
-| 21 | Phiên bản MySQL | MySQL 8.0.16 trở lên, InnoDB, `utf8mb4` | Cùng yêu cầu | Khớp; Docker image cần dùng `mysql:8.0` trở lên |
+## 7. Bổ sung thêm
 
 ### 7.1. Quyết định về sắp xếp `due_date`
 
@@ -616,30 +566,3 @@ Backend chịu trách nhiệm:
 3. Chuyển thành ISO 8601 có hậu tố `Z` khi trả response.
 
 Không sử dụng `DATE` cho `created_at` hoặc `updated_at`, vì hai trường này cần lưu cả ngày và giờ. Không dùng `TIMESTAMP` vì giá trị bị chuyển đổi theo múi giờ của session và có giới hạn năm 2038.
-
-## 8. Phạm vi triển khai
-
-Phiên bản API v1 tập trung vào các chức năng tối thiểu của ứng dụng quản lý công việc cá nhân:
-
-- Đăng ký và đăng nhập bằng email, mật khẩu.
-- Xác thực bằng JWT Bearer.
-- Tạo công việc.
-- Xem danh sách công việc.
-- Lọc công việc theo trạng thái.
-- Xem chi tiết công việc.
-- Cập nhật thông tin và trạng thái công việc.
-- Xóa công việc.
-- Kiểm tra trạng thái ứng dụng và kết nối MySQL.
-
-Các chức năng chưa nằm trong phạm vi phiên bản này:
-
-- Quên hoặc đặt lại mật khẩu.
-- Refresh token.
-- Đăng xuất phía server.
-- Phân quyền admin.
-- Tìm kiếm công việc.
-- Phân trang.
-- Xóa mềm.
-- Thông báo nhắc hạn công việc.
-
-Các chức năng trên có thể được xem xét bổ sung trong những phiên bản tiếp theo nếu cần thiết.

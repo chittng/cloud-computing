@@ -1,8 +1,7 @@
-# Thiết kế cấu trúc cơ sở dữ liệu
+# Database design
 
-**Task:** CLOUD-5  
 **Database:** MySQL 8.0.16 trở lên, engine InnoDB  
-**Đối chiếu với:** API Specification CLOUD-38 (v1)
+**Đối chiếu với:** API Specification (./api-spec.md)
 
 ## 0. Môi trường và quy ước chung
 
@@ -11,7 +10,7 @@
 | Phiên bản MySQL | 8.0.16 trở lên | Từ phiên bản này ràng buộc `CHECK` mới được thực thi; các bản cũ chấp nhận cú pháp nhưng bỏ qua |
 | Storage engine | InnoDB | Hỗ trợ khóa ngoại và transaction |
 | Character set | `utf8mb4` | Lưu được tiếng Việt và ký tự Unicode đầy đủ |
-| Collation mặc định | `utf8mb4_0900_ai_ci` | Không phân biệt hoa thường, nên `UNIQUE` trên `email` đã chống trùng khác hoa thường |
+| Collation mặc định | `utf8mb4_unicode_ci` | Không phân biệt hoa thường, nên `UNIQUE` trên `email` đã chống trùng khác hoa thường |
 | Kiểu thời gian | `DATETIME`, lưu giá trị UTC | Thống nhất với API; không phụ thuộc múi giờ của session như `TIMESTAMP` |
 | Múi giờ kết nối | `time_zone = '+00:00'` (UTC) | Để `CURRENT_TIMESTAMP` trong `DEFAULT` và `ON UPDATE` cũng ra giờ UTC |
 | Cách sinh khóa chính | `AUTO_INCREMENT` | Cơ chế tự tăng của MySQL |
@@ -32,7 +31,7 @@ erDiagram
     USERS {
         BIGINT id PK
         VARCHAR email UK
-        VARCHAR password_hash
+        VARCHAR password
         VARCHAR display_name
         DATETIME created_at
         DATETIME updated_at
@@ -58,7 +57,7 @@ erDiagram
 |---|---|---|---|---|
 | id | BIGINT AUTO_INCREMENT | NOT NULL | Tự tăng | Khóa chính |
 | email | VARCHAR(255) | NOT NULL | – | Email đăng nhập, đã trim và chuyển chữ thường ở backend |
-| password_hash | VARCHAR(255) | NOT NULL | – | Mật khẩu đã hash (bcrypt hoặc Argon2) |
+| password | VARCHAR(255) | NOT NULL | – | Mật khẩu đã hash (bcrypt hoặc Argon2) |
 | display_name | VARCHAR(100) | NULL | – | Tên hiển thị |
 | created_at | DATETIME | NOT NULL | CURRENT_TIMESTAMP | Thời điểm tạo (UTC) |
 | updated_at | DATETIME | NOT NULL | CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP | Thời điểm cập nhật (UTC) |
@@ -122,7 +121,7 @@ Ràng buộc UNIQUE đảm bảo các giá trị trong cột được chỉ đ�
 **Giải thích:**
 
 - Email được chuẩn hóa về chữ thường và loại bỏ khoảng trắng ở đầu, cuối bằng `trim()` trước khi lưu.
-- MySQL không cần index trên `lower(email)`. Collation mặc định `utf8mb4_0900_ai_ci` không phân biệt hoa thường, nên `UNIQUE (email)` đã từ chối `An@Example.com` khi `an@example.com` đã tồn tại. Cách này đơn giản hơn functional index và không phụ thuộc cú pháp riêng của MySQL 8.0.13 trở lên.
+- MySQL không cần index trên `lower(email)`. Collation mặc định `utf8mb4_unicode_ci` không phân biệt hoa thường, nên `UNIQUE (email)` đã từ chối `An@Example.com` khi `an@example.com` đã tồn tại. Cách này đơn giản hơn functional index và không phụ thuộc cú pháp riêng của MySQL 8.0.13 trở lên.
 - Collation này cũng không phân biệt dấu. Với email, điều này không gây vấn đề vì email thực tế dùng ký tự ASCII.
 - Không đặt UNIQUE cho `tasks.title`, vì nhiều công việc có thể có cùng tên.
 - Khi đăng ký bằng email đã tồn tại, MySQL trả lỗi `1062` (duplicate entry). Backend cần bắt lỗi này và trả về HTTP `409 Conflict` với mã `EMAIL_ALREADY_EXISTS`, không trả về `500 Internal Server Error`.
@@ -146,7 +145,7 @@ Ràng buộc UNIQUE đảm bảo các giá trị trong cột được chỉ đ�
 
 | Bảng | Cột |
 |---|---|
-| users | email, password_hash, created_at, updated_at |
+| users | email, password, created_at, updated_at |
 | tasks | user_id, title, status, created_at, updated_at |
 
 Các cột còn lại như `display_name`, `description` và `due_date` được phép nhận giá trị NULL.
@@ -196,65 +195,3 @@ Các chỉ mục được thiết kế dựa trên những truy vấn chính c�
 Lưu ý: Index `idx_tasks_user_status_due` không thay thế hoàn toàn `idx_tasks_user_due` vì cột `status` nằm giữa `user_id` và `due_date`.
 
 **Lưu ý về `filesort`:** Mỗi index secondary của InnoDB tự động chứa thêm cột khóa chính `id` ở cuối. Tuy nhiên, vì Q2 và Q3 sắp xếp theo biểu thức `due_date IS NULL`, MySQL không thể dùng hoàn toàn thứ tự của index và có thể phải thực hiện `filesort` trên tập kết quả của một user. Với quy mô dữ liệu của project, đây là đánh đổi được chấp nhận (xem CLOUD-38, mục 7.1). Index vẫn có tác dụng thu hẹp tập dữ liệu theo `user_id` và `status` trước khi sắp xếp. Khi kiểm thử index, dùng `EXPLAIN` để xác nhận truy vấn dùng đúng index và ghi nhận việc có `Using filesort` trong kết quả.
-
-### 4.3. Câu lệnh SQL tham khảo
-
-Các câu lệnh dưới đây là định nghĩa MySQL đầy đủ của thiết kế, dùng để tài liệu hóa và đối chiếu khi viết migration. Chúng không thay thế file migration thực tế của project.
-
-```sql
-CREATE TABLE users (
-    id            BIGINT       NOT NULL AUTO_INCREMENT,
-    email         VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    display_name  VARCHAR(100) NULL,
-    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-                               ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT pk_users PRIMARY KEY (id),
-    CONSTRAINT uq_users_email UNIQUE (email),
-    CONSTRAINT ck_users_email_not_blank
-        CHECK (CHAR_LENGTH(TRIM(email)) > 0)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_0900_ai_ci;
-
-CREATE TABLE tasks (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    user_id     BIGINT       NOT NULL,
-    title       VARCHAR(255) NOT NULL,
-    description TEXT         NULL,
-    due_date    DATE         NULL,
-    status      VARCHAR(20)  COLLATE utf8mb4_bin NOT NULL DEFAULT 'pending',
-    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-                             ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT pk_tasks PRIMARY KEY (id),
-    CONSTRAINT fk_tasks_user FOREIGN KEY (user_id)
-        REFERENCES users (id)
-        ON DELETE CASCADE
-        ON UPDATE RESTRICT,
-    CONSTRAINT ck_tasks_status
-        CHECK (status IN ('pending', 'completed')),
-    CONSTRAINT ck_tasks_title_not_blank
-        CHECK (CHAR_LENGTH(TRIM(title)) > 0),
-    -- Phục vụ Q3, Q5 và làm index cho khóa ngoại user_id
-    INDEX idx_tasks_user_status_due (user_id, status, due_date),
-    -- Tùy chọn, phục vụ Q2
-    INDEX idx_tasks_user_due (user_id, due_date)
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_0900_ai_ci;
-```
-
-**Cấu hình múi giờ UTC** (một trong hai cách):
-
-```sql
--- Cách 1: đặt cho từng kết nối (thường cấu hình trong driver của backend)
-SET time_zone = '+00:00';
-```
-
-```ini
-# Cách 2: đặt cho cả MySQL server (my.cnf hoặc tham số của container)
-[mysqld]
-default-time-zone = '+00:00'
-```

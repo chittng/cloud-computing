@@ -63,8 +63,11 @@ pnpm build
 pnpm start
 ```
 
-The initial module has no HTTP routes. Requests to `/` currently return `404`;
-`/health` will be added in a later work item.
+`GET /health` is public and probes the same MySQL connection pool used by the app.
+It returns `200` with `status: "ok"` and `database: "up"`, or `503` with
+`status: "error"` and `database: "down"` when the query fails. Both responses include
+`version` and a UTC `timestamp`; connection details are never returned.
+Requests to `/` currently return `404`. Production verification awaits CLOUD-34.
 
 ## Configuration and logs
 
@@ -96,6 +99,14 @@ Keep real credentials and `.env` files out of Git. Changing Docker initializatio
 credentials in `.env` does not change users in an existing database volume.
 
 ## Database migrations
+
+After migrating, set `SEED_PASSWORD` (8–72 UTF-8 bytes) in your shell or local `.env`
+and run `pnpm db:seed`. This creates `alice.seed@example.test` and
+`bob.seed@example.test`, with bcrypt password hashes and one owned sample task each.
+Running the seed again skips existing sample accounts and preserves their passwords,
+tasks and edits. It does not recreate deleted sample tasks for existing accounts.
+The seed runs explicitly, uses the same connection settings as migrations and the
+backend, and never changes the schema. Sample accounts are intended for local tests.
 
 The initial migration implements the schema in
 [docs/database-design.md](./docs/database-design.md). Run from the repository root:
@@ -174,6 +185,44 @@ DELETE FROM users WHERE email = 'persistence@example.com';
 The named volume survives container recreation and `docker compose down`.
 `docker compose down --volumes` deletes that stored database. Verification evidence
 for CLOUD-6 is recorded in [docs/cloud-6-verification.md](./docs/cloud-6-verification.md).
+
+## Docker packaging and containerized operation
+
+The application is containerized using a multi-stage Docker build targeting Node 24 and Alpine Linux.
+
+Build the tagged image:
+
+```sh
+docker build -t cloud-computing:1.0.0 -t cloud-computing:latest .
+```
+
+Start the application and MySQL services together using Docker Compose:
+
+```sh
+docker compose up -d
+```
+
+Run database migrations and sample seeder inside the running application container:
+
+```sh
+docker compose exec app node dist/database/migrate.js up
+docker compose exec app node dist/database/seed.js
+```
+
+Verify service availability via the HTTP health endpoint:
+
+```sh
+curl http://localhost:3000/health
+```
+
+To stop services while preserving the database volume:
+
+```sh
+docker compose down
+```
+
+Verification details and two-person testing evidence are documented in
+[docs/cloud-15-verification.md](./docs/cloud-15-verification.md).
 
 ## Development commands
 

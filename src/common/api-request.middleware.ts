@@ -14,6 +14,8 @@ export function getRegisteredApiRouteRules(): readonly RouteMethodRule[] {
   return [
     { pattern: /^\/api\/v1\/auth\/register$/, methods: ["POST"] },
     { pattern: /^\/api\/v1\/auth\/login$/, methods: ["POST"] },
+    { pattern: /^\/api\/v1\/tasks$/, methods: ["GET", "POST"] },
+    { pattern: /^\/api\/v1\/tasks\/[^/]+$/, methods: ["GET", "PATCH", "DELETE"] },
   ];
 }
 

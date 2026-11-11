@@ -10,6 +10,7 @@ RUN pnpm install --frozen-lockfile --runtime-on-fail=ignore
 
 COPY tsconfig*.json nest-cli.json ./
 COPY src/ ./src/
+COPY web/ ./web/
 
 RUN pnpm build
 

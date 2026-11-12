@@ -28,7 +28,7 @@ apps/web/       React frontend (@cloud-computing/web)
   src/features/ Pages, API calls and hooks per feature: auth, tasks
   src/components/ui/  shadcn/ui components
 docs/           Earlier design notes and verification records
-compose.yaml    MySQL and app services
+compose.yaml    MySQL, migration and app services
 Dockerfile      Multi-stage production image
 ```
 
@@ -67,14 +67,26 @@ For development, run `pnpm dev` (backend with watch mode, port 3000) and
 ## Run with Docker
 
 ```sh
-docker build -t cloud-computing:1.0.0 .
-docker compose up -d
-docker compose exec app pnpm exec typeorm migration:run -d dist/database/data-source.js
-docker compose exec app node dist/database/seed.js
+docker compose up -d --build --wait
+docker compose exec app node dist/database/seed.js   # optional sample data
 curl http://localhost:3000/health
 ```
 
-`docker compose down` stops the services and keeps the database volume.
+`up` builds the `cloud-computing:1.0.0` image and starts three services:
+
+- `database`: MySQL, reachable from the host only on `127.0.0.1:${MYSQL_PORT}`.
+- `migrate`: applies pending migrations once MySQL is healthy, then exits.
+- `app`: starts after `migrate` succeeds and listens on `${PORT}` (default `3000`).
+  Its health check calls `/health`, so `--wait` returns once the app and the
+  database both answer.
+
+Run the same `up` command to deploy a new version; migrations run before the
+new app container starts. If `migrate` fails, `app` does not start; read the
+error with `docker compose logs migrate`. The seed command needs
+`SEED_PASSWORD` in `.env`.
+
+`database` and `app` restart automatically when they crash or the Docker daemon
+restarts. `docker compose down` stops the services and keeps the database volume.
 `docker compose down --volumes` also deletes the data.
 
 ## Configuration
@@ -114,7 +126,8 @@ errors use the standard NestJS shape `{ statusCode, message, error }`.
 
 The schema is created by migrations in `apps/api/src/database/migrations/`
 and mapped by the TypeORM entities. Schema synchronization is disabled and the
-app does not run migrations on startup.
+app does not run migrations on startup; locally run `pnpm db:migrate`, and with
+Docker Compose the `migrate` service runs them.
 
 | Command           | Purpose                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------- |

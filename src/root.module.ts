@@ -5,9 +5,10 @@ import { ApiExceptionFilter } from "./common/api-exception.filter.ts";
 import { ApiRequestMiddleware } from "./common/api-request.middleware.ts";
 import { DatabaseModule } from "./database/database.module.ts";
 import { HealthController } from "./health/health.controller.ts";
+import { TasksModule } from "./tasks/tasks.module.ts";
 
 @Module({
-  imports: [DatabaseModule, AuthModule],
+  imports: [DatabaseModule, AuthModule, TasksModule],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
 })

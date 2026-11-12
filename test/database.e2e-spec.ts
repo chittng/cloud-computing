@@ -7,7 +7,9 @@ import { connectDatabase } from "../src/database/data-source.ts";
 import { RootModule } from "../src/root.module.ts";
 import { seedData } from "../src/database/seed-data.ts";
 import { compare } from "bcryptjs";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import request from "supertest";
+import { configureHttpApp } from "../src/app.factory.ts";
 
 describe("MySQL integration (dedicated disposable *_test database)", () => {
   let source: DataSource;
@@ -316,5 +318,51 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
         "SELECT title FROM tasks JOIN users ON users.id = tasks.user_id WHERE email = 'restart@example.com'",
       ),
     ).toEqual([{ title: "Persistent task" }]);
+  });
+
+  it("executes CLOUD-8 and CLOUD-9 HTTP API flows against real MySQL constraints", async () => {
+    process.env.JWT_SECRET ??= "database-e2e-test-jwt-secret";
+    const http = configureHttpApp(
+      await NestFactory.create<NestExpressApplication>(RootModule, { logger: false }),
+    );
+    await http.init();
+    try {
+      await request(http.getHttpServer())
+        .post("/api/v1/auth/register")
+        .send({ email: "MySQLA@example.com", password: "Password123!", display_name: "MySQL A" })
+        .expect(201);
+      await request(http.getHttpServer())
+        .post("/api/v1/auth/register")
+        .send({ email: "mysqla@example.com", password: "Password123!" })
+        .expect(409);
+
+      const loginA = await request(http.getHttpServer())
+        .post("/api/v1/auth/login")
+        .send({ email: "mysqla@example.com", password: "Password123!" })
+        .expect(200);
+      const tokenA = loginA.body.access_token as string;
+
+      const created = await request(http.getHttpServer())
+        .post("/api/v1/tasks")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ title: "Real MySQL task", due_date: "2026-12-31" })
+        .expect(201);
+
+      const unchanged = await request(http.getHttpServer())
+        .patch(`/api/v1/tasks/${created.body.id}`)
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ title: "Real MySQL task" })
+        .expect(200);
+      expect(unchanged.body.updated_at).toBe(created.body.updated_at);
+
+      await source.query("DELETE FROM users WHERE email = 'mysqla@example.com'");
+      await request(http.getHttpServer())
+        .post("/api/v1/tasks")
+        .set("Authorization", `Bearer ${tokenA}`)
+        .send({ title: "Deleted owner" })
+        .expect(401);
+    } finally {
+      await http.close();
+    }
   });
 });

@@ -1,6 +1,24 @@
+x-app-image: &app-image
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: cloud-computing:1.0.0
+
+# The app and the migration job both validate the full environment on startup.
+x-app-environment: &app-environment
+  PORT: 3000
+  MYSQL_HOST: database
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
+  MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+
 services:
   database:
     image: mysql:8.4
+    restart: unless-stopped
     command:
       [
         "--default-time-zone=+00:00",
@@ -17,37 +35,48 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
+      # Connect over TCP: on first start the image runs a socket-only temporary
+      # server while it creates the user, which must not count as healthy.
       test:
         [
           "CMD-SHELL",
-          "MYSQL_PWD=$$MYSQL_PASSWORD mysql --user=$$MYSQL_USER --database=$$MYSQL_DATABASE --execute='SELECT 1' --silent",
+          "MYSQL_PWD=$$MYSQL_PASSWORD mysql --protocol=tcp --host=127.0.0.1 --user=$$MYSQL_USER --database=$$MYSQL_DATABASE --execute='SELECT 1' --silent",
         ]
       interval: 5s
       timeout: 5s
       retries: 30
       start_period: 20s
 
+  # Applies pending migrations, then exits; the app starts only if it succeeds.
+  migrate:
+    <<: *app-image
+    command:
+      ["node", "node_modules/typeorm/cli.js", "migration:run", "-d", "dist/database/data-source.js"]
+    environment: *app-environment
+    depends_on:
+      database:
+        condition: service_healthy
+
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: cloud-computing:1.0.0
+    <<: *app-image
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"
     environment:
-      PORT: 3000
-      MYSQL_HOST: database
-      MYSQL_PORT: 3306
-      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
-      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
-      SEED_PASSWORD: ${SEED_PASSWORD:-SampleUser123!}
+      <<: *app-environment
+      # Read only by the seed script; it refuses to run when this is empty.
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
     depends_on:
       database:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 volumes:
   mysql_data:

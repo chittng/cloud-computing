@@ -12,10 +12,11 @@ export async function seedData(database: DataSource, password: string): Promise<
         email,
       ]);
       if (existing.length) continue;
-      await manager.query(
-        "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
-        [email, passwordHash, name],
-      );
+      await manager.query("INSERT INTO users (email, password, display_name) VALUES (?, ?, ?)", [
+        email,
+        passwordHash,
+        name,
+      ]);
       await manager.query(
         `INSERT INTO tasks (user_id, title, description, status)
         SELECT id, ?, ?, ? FROM users WHERE email = ?`,

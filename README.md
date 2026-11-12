@@ -121,14 +121,27 @@ configured, already-created database. TypeORM records applied migrations in its
 Application startup does not automatically apply migrations. Run one migration
 process at a time before starting a new application version.
 
+The collation migration updates the database default, table defaults and text
+columns to `utf8mb4_unicode_ci`, preserving `tasks.status` as `utf8mb4_bin` for
+case-sensitive validation. It also upgrades databases created with the original
+schema; changing the Compose server default alone does not update existing tables.
+Unlike the original collation, `utf8mb4_unicode_ci` ignores trailing spaces in
+comparisons. Resolve any email duplicates under the target collation before
+running the migration. MySQL rejects conflicting unique keys without merging data.
+
+The password rename migration changes `users.password_hash` to `users.password`
+without changing stored hashes, column type, nullability or collation.
+
 To revert the latest migration in a disposable local database:
 
 ```sh
 pnpm db:revert
 ```
 
-The initial migration's rollback drops `tasks` before `users` and deletes their
-data. MySQL DDL is not transactional; if a migration fails partway, inspect the
+The password rename migration's rollback restores the `password_hash` column name.
+Reverting the collation migration restores `utf8mb4_0900_ai_ci`. Reverting the
+initial migration drops `tasks` before `users` and deletes their data.
+MySQL DDL is not transactional; if a migration fails partway, inspect the
 schema before retrying. Do not use rollback or delete a volume containing data
 you need to keep.
 
@@ -155,13 +168,13 @@ To demonstrate Docker volume persistence with the local development database,
 apply migrations, start the app, then open a MySQL session:
 
 ```sh
-docker compose exec mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" "$MYSQL_DATABASE"'
+docker compose exec database sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" "$MYSQL_DATABASE"'
 ```
 
 Insert a recognizable user and task, then exit the MySQL session:
 
 ```sql
-INSERT INTO users (email, password_hash) VALUES ('persistence@example.com', 'test-only-hash');
+INSERT INTO users (email, password) VALUES ('persistence@example.com', 'test-only-hash');
 INSERT INTO tasks (user_id, title)
 SELECT id, 'Volume persistence check' FROM users WHERE email = 'persistence@example.com';
 exit

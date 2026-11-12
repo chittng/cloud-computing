@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { loadEnvFile } from "node:process";
+import { loadRootEnvFile } from "../common/env-file.ts";
 import type { DataSourceOptions } from "typeorm";
 import { InitialSchema1793577600000 } from "./migrations/1793577600000-initial-schema.ts";
 import { UnicodeCollation1793836800000 } from "./migrations/1793836800000-unicode-collation.ts";
@@ -41,6 +40,6 @@ export function databaseOptions(env: NodeJS.ProcessEnv = process.env): DataSourc
 }
 
 export function loadDatabaseOptions(): DataSourceOptions {
-  if (existsSync(".env")) loadEnvFile(".env");
+  loadRootEnvFile();
   return databaseOptions();
 }

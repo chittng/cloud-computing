@@ -9,12 +9,9 @@ import { RootModule } from "./root.module.ts";
 
 export const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
+// apps/web builds into its own dist/; this file is one level below apps/api in both src/ and dist/.
 function resolveFrontendDistDir(): string {
-  const fromCompiled = resolve(import.meta.dirname, "..", "public");
-  if (existsSync(join(fromCompiled, "index.html"))) {
-    return fromCompiled;
-  }
-  return join(process.cwd(), "dist", "public");
+  return resolve(import.meta.dirname, "..", "..", "web", "dist");
 }
 
 export interface HttpAppOptions {

@@ -15,14 +15,21 @@ tasks by status (pending or completed). Data is stored in MySQL.
 
 ## Project structure
 
+The repository is a pnpm workspace; packages are listed in
+[pnpm-workspace.yaml](./pnpm-workspace.yaml).
+
 ```text
-src/            NestJS backend (auth, tasks, health, database)
-web/            React frontend
-test/           End-to-end tests
+apps/api/       NestJS backend (@cloud-computing/api)
+  src/          Auth, tasks, health, database
+  test/         End-to-end tests
+apps/web/       React frontend (@cloud-computing/web)
 docs/           API spec, database design, verification records
 compose.yaml    MySQL and app services
 Dockerfile      Multi-stage production image
 ```
+
+Scripts in the root `package.json` run the matching script in each app. To run
+any other script in one app, use `pnpm --filter <package name> <script>`.
 
 ## Run locally
 
@@ -96,7 +103,7 @@ Full contract: [docs/api-spec.md](./docs/api-spec.md).
 ## Database
 
 The schema is defined in [docs/database-design.md](./docs/database-design.md)
-and created by migrations in `src/database/migrations/`. Schema synchronization
+and created by migrations in `apps/api/src/database/migrations/`. Schema synchronization
 is disabled and the app does not run migrations on startup.
 
 | Command           | Purpose                                                                                     |
@@ -112,7 +119,7 @@ already does.
 
 | Command             | Purpose                     |
 | ------------------- | --------------------------- |
-| `pnpm test`         | Unit and frontend tests     |
+| `pnpm test`         | Unit tests in both apps     |
 | `pnpm test:e2e`     | End-to-end tests with MySQL |
 | `pnpm lint`         | Type-aware lint             |
 | `pnpm format:check` | Check formatting            |
@@ -123,7 +130,7 @@ then run:
 
 ```sh
 docker compose -p cloud-db-test --env-file .env.test up -d --wait database
-pnpm exec node --env-file=.env.test node_modules/vitest/vitest.mjs run --config vitest.config.e2e.ts
+pnpm --filter @cloud-computing/api exec node --env-file=../../.env.test node_modules/vitest/vitest.mjs run --config vitest.config.e2e.ts
 docker compose -p cloud-db-test --env-file .env.test down --volumes
 ```
 

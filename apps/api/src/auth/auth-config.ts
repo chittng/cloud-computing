@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { loadEnvFile } from "node:process";
+import { loadRootEnvFile } from "../common/env-file.ts";
 
 export interface AuthConfig {
   jwtSecret: string;
@@ -24,6 +23,6 @@ export function authConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig {
 }
 
 export function loadAuthConfig(): AuthConfig {
-  if (existsSync(".env")) loadEnvFile(".env");
+  loadRootEnvFile();
   return authConfig();
 }

@@ -7,10 +7,12 @@ tasks by status (pending or completed). Data is stored in MySQL.
 
 ## Tech stack
 
-- Backend: NestJS (TypeScript, ESM), TypeORM with explicit migrations
-- Frontend: React, Vite and Tailwind CSS, served by the NestJS app in production
+- Backend: NestJS (TypeScript, ESM), TypeORM with explicit migrations,
+  class-validator DTOs, `@nestjs/config`, `@nestjs/jwt`, `@nestjs/terminus`
+- Frontend: React, Vite, Tailwind CSS and shadcn/ui, with React Router,
+  TanStack Query, React Hook Form and Zod; served by the NestJS app in production
 - Database: MySQL 8.4
-- Auth: JWT (HS256), bcrypt password hashing
+- Auth: JWT bearer tokens, bcrypt password hashing
 - Tooling: pnpm, Vitest, Oxlint, Oxfmt, Docker Compose
 
 ## Project structure
@@ -20,10 +22,12 @@ The repository is a pnpm workspace; packages are listed in
 
 ```text
 apps/api/       NestJS backend (@cloud-computing/api)
-  src/          Auth, tasks, health, database
+  src/          One module per feature: auth, users, tasks, health; database
   test/         End-to-end tests
 apps/web/       React frontend (@cloud-computing/web)
-docs/           API spec, database design, verification records
+  src/features/ Pages, API calls and hooks per feature: auth, tasks
+  src/components/ui/  shadcn/ui components
+docs/           Earlier design notes and verification records
 compose.yaml    MySQL and app services
 Dockerfile      Multi-stage production image
 ```
@@ -65,7 +69,7 @@ For development, run `pnpm dev` (backend with watch mode, port 3000) and
 ```sh
 docker build -t cloud-computing:1.0.0 .
 docker compose up -d
-docker compose exec app node dist/database/migrate.js up
+docker compose exec app pnpm exec typeorm migration:run -d dist/database/data-source.js
 docker compose exec app node dist/database/seed.js
 curl http://localhost:3000/health
 ```
@@ -93,18 +97,24 @@ Never commit `.env` files or real credentials.
 
 ## API
 
-- `POST /api/v1/auth/register`, `POST /api/v1/auth/login`
-- `GET|POST /api/v1/tasks`, `GET|PATCH|DELETE /api/v1/tasks/:id` (requires a
-  bearer token)
-- `GET /health`: returns `200` when the database is reachable, `503` otherwise
+| Endpoint                                   | Purpose                                              |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `POST /api/auth/register`                  | Create an account                                    |
+| `POST /api/auth/login`                     | Returns `accessToken`, `expiresIn` and the user      |
+| `GET /api/tasks?status=pending\|completed` | List your tasks by due date, undated tasks last      |
+| `POST /api/tasks`                          | Create a task                                        |
+| `GET\|PATCH\|DELETE /api/tasks/:id`        | Read, update or delete one of your tasks             |
+| `GET /health`                              | `200` when the database answers a ping, `503` if not |
 
-Full contract: [docs/api-spec.md](./docs/api-spec.md).
+Every `/api/tasks` route requires an `Authorization: Bearer <accessToken>`
+header. Request bodies are validated by the DTOs in `apps/api/src/*/dto/`;
+errors use the standard NestJS shape `{ statusCode, message, error }`.
 
 ## Database
 
-The schema is defined in [docs/database-design.md](./docs/database-design.md)
-and created by migrations in `apps/api/src/database/migrations/`. Schema synchronization
-is disabled and the app does not run migrations on startup.
+The schema is created by migrations in `apps/api/src/database/migrations/`
+and mapped by the TypeORM entities. Schema synchronization is disabled and the
+app does not run migrations on startup.
 
 | Command           | Purpose                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------- |
@@ -124,15 +134,17 @@ already does.
 | `pnpm lint`         | Type-aware lint             |
 | `pnpm format:check` | Check formatting            |
 
-End-to-end tests need a separate, empty database whose name ends in `_test`.
-Create `.env.test` from `.env.example` with that database name and a free port,
-then run:
+End-to-end tests run against a separate database whose name ends in `_test`;
+they delete all of its data. Create `.env.test` from `.env.example` with that
+database name and a free `MYSQL_PORT`, then run:
 
 ```sh
 docker compose -p cloud-db-test --env-file .env.test up -d --wait database
-pnpm --filter @cloud-computing/api exec node --env-file=../../.env.test node_modules/vitest/vitest.mjs run --config vitest.config.e2e.ts
+pnpm test:e2e
 docker compose -p cloud-db-test --env-file .env.test down --volumes
 ```
+
+`pnpm test:e2e` reads `.env.test` on top of `.env` and applies the migrations itself.
 
 ## Logs
 

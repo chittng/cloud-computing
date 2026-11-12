@@ -1,8 +1,8 @@
-import { createHttpApp } from "./app.factory.ts";
+import { ConfigService } from "@nestjs/config";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module.ts";
+import type { Environment } from "./config/environment.ts";
 
-async function bootstrap(): Promise<void> {
-  const app = await createHttpApp();
-  await app.listen(process.env.PORT ?? 3000);
-}
-
-await bootstrap();
+const app = await NestFactory.create(AppModule);
+app.enableShutdownHooks();
+await app.listen(app.get(ConfigService<Environment, true>).get("PORT", { infer: true }));

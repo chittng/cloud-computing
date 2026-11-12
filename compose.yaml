@@ -1,11 +1,11 @@
 services:
-  mysql:
+  database:
     image: mysql:8.4
     command:
       [
         "--default-time-zone=+00:00",
         "--character-set-server=utf8mb4",
-        "--collation-server=utf8mb4_0900_ai_ci",
+        "--collation-server=utf8mb4_unicode_ci",
       ]
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
@@ -37,14 +37,14 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       PORT: 3000
-      MYSQL_HOST: mysql
+      MYSQL_HOST: database
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}
       MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER in .env}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
       SEED_PASSWORD: ${SEED_PASSWORD:-SampleUser123!}
     depends_on:
-      mysql:
+      database:
         condition: service_healthy
 
 volumes:

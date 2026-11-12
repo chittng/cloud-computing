@@ -1,260 +1,137 @@
 # Cloud Computing
 
-A personal task management web application for a university Cloud Computing course.
-The course project covers application development, Docker packaging, and cloud
-deployment and operation.
+A personal task management web app for a university Cloud Computing course.
 
-## Project scope
+Users can register, sign in, create, view, update and delete tasks, and filter
+tasks by status (pending or completed). Data is stored in MySQL.
 
-The planned application lets users register, sign in, create and view tasks, edit
-their title, description, deadline, or status, delete tasks, and filter tasks by
-completion status. Task data will be stored in a database.
+## Tech stack
 
-The repository contains the NestJS backend, MySQL integration, versioned database
-migrations, and development tooling. Application features, the web interface,
-a health endpoint, application Docker packaging, and cloud deployment are planned work.
+- Backend: NestJS (TypeScript, ESM), TypeORM with explicit migrations
+- Frontend: React, Vite and Tailwind CSS, served by the NestJS app in production
+- Database: MySQL 8.4
+- Auth: JWT (HS256), bcrypt password hashing
+- Tooling: pnpm, Vitest, Oxlint, Oxfmt, Docker Compose
 
-## Technology and structure
-
-- Backend: NestJS with TypeScript and native ESM.
-- Package manager: pnpm.
-- Code quality: Oxlint and Oxfmt.
-- Testing: Vitest, with Supertest available for HTTP tests.
-- Database: MySQL with TypeORM and mysql2. Schema changes use explicit migrations;
-  automatic schema synchronization is disabled.
+## Project structure
 
 ```text
-src/
-  main.ts          Application entry point
-  root.module.ts   Root NestJS module
-  database/        Connection configuration and versioned migrations
-test/              MySQL integration tests
-compose.yaml       Local MySQL service and persistent named volume
-AGENTS.md          Contributor and AI agent instructions
-CLAUDE.md          Entry point to the shared instructions for Claude
+src/            NestJS backend (auth, tasks, health, database)
+web/            React frontend
+test/           End-to-end tests
+docs/           API spec, database design, verification records
+compose.yaml    MySQL and app services
+Dockerfile      Multi-stage production image
 ```
 
-## Local development
+## Run locally
 
-Use the Node.js and pnpm versions specified in `devEngines` in
-[package.json](./package.json). Dependency pinning settings are in
-[pnpm-workspace.yaml](./pnpm-workspace.yaml).
+Requirements: Node.js and pnpm versions from `devEngines` in
+[package.json](./package.json), and Docker.
 
-Install dependencies, copy `.env.example` to `.env`, and replace both password
-placeholders with local passwords. In PowerShell use `Copy-Item .env.example .env`;
-in a POSIX shell use `cp .env.example .env`. Then start MySQL, apply migrations,
-and start the development server:
+1. Copy `.env.example` to `.env` and replace the placeholder passwords,
+   `JWT_SECRET` and `SEED_PASSWORD`.
+2. Install dependencies, start MySQL, apply migrations and load sample data:
+
+   ```sh
+   pnpm install --frozen-lockfile
+   docker compose up -d --wait database
+   pnpm db:migrate
+   pnpm db:seed
+   ```
+
+3. Start the app:
+
+   ```sh
+   pnpm build
+   pnpm start
+   ```
+
+   Open <http://localhost:3000>.
+
+For development, run `pnpm dev` (backend with watch mode, port 3000) and
+`pnpm dev:web` (frontend on <http://localhost:5173>, proxying `/api` and
+`/health` to the backend).
+
+## Run with Docker
 
 ```sh
-pnpm install --frozen-lockfile
-docker compose up -d --wait
-pnpm db:migrate
-pnpm dev
-```
-
-The server listens on port `3000` by default. Stop it with `Ctrl+C`.
-On Windows with Docker installed only in WSL, run Docker commands as
-`wsl -d Ubuntu-24.04 -- docker compose ...` from the project directory.
-
-To build and run the compiled application locally:
-
-```sh
-pnpm build
-pnpm start
-```
-
-`GET /health` is public and probes the same MySQL connection pool used by the app.
-It returns `200` with `status: "ok"` and `database: "up"`, or `503` with
-`status: "error"` and `database: "down"` when the query fails. Both responses include
-`version` and a UTC `timestamp`; connection details are never returned.
-Requests to `/` currently return `404`. Production verification awaits CLOUD-34.
-
-## Configuration and logs
-
-| Environment variable | Purpose             | Default |
-| -------------------- | ------------------- | ------- |
-| `PORT`               | HTTP listening port | `3000`  |
-
-Set environment variables in the shell or runtime environment before starting the
-application. The backend and migration runner also load `.env` from the project
-directory; existing environment variables take precedence. Startup logs include
-`Connected to MySQL (UTC)` after the connection is verified. Shutdown closes the
-connection pool.
-
-MySQL variables and local values are listed in [.env.example](./.env.example):
-`MYSQL_HOST` and `MYSQL_PORT` select the host connection; `MYSQL_DATABASE`,
-`MYSQL_USER`, and `MYSQL_PASSWORD` are required. `MYSQL_ROOT_PASSWORD` is used only
-to initialize the Docker database, not by the application. The application uses
-the dedicated database user.
-
-The Compose service defines its MySQL image, character set, collation, UTC server
-time zone, health check, localhost port binding, and named volume in
-[compose.yaml](./compose.yaml). For an external server, configure
-`default-time-zone='+00:00'`; startup rejects other global/session time zones.
-The driver reads/writes `DATETIME` as UTC. Raw `BIGINT` results are strings to avoid
-precision loss; future API serializers must validate the safe integer range before
-converting IDs to JSON numbers. `DATE` results remain date-only strings.
-
-Keep real credentials and `.env` files out of Git. Changing Docker initialization
-credentials in `.env` does not change users in an existing database volume.
-
-## Database migrations
-
-After migrating, set `SEED_PASSWORD` (8–72 UTF-8 bytes) in your shell or local `.env`
-and run `pnpm db:seed`. This creates `alice.seed@example.test` and
-`bob.seed@example.test`, with bcrypt password hashes and one owned sample task each.
-Running the seed again skips existing sample accounts and preserves their passwords,
-tasks and edits. It does not recreate deleted sample tasks for existing accounts.
-The seed runs explicitly, uses the same connection settings as migrations and the
-backend, and never changes the schema. Sample accounts are intended for local tests.
-
-The initial migration implements the schema in
-[docs/database-design.md](./docs/database-design.md). Run from the repository root:
-
-```sh
-pnpm db:migrate
-```
-
-The command builds the ESM application and applies pending migrations to the
-configured, already-created database. TypeORM records applied migrations in its
-`migrations` table. Running it again without new migrations makes no schema changes.
-Application startup does not automatically apply migrations. Run one migration
-process at a time before starting a new application version.
-
-The collation migration updates the database default, table defaults and text
-columns to `utf8mb4_unicode_ci`, preserving `tasks.status` as `utf8mb4_bin` for
-case-sensitive validation. It also upgrades databases created with the original
-schema; changing the Compose server default alone does not update existing tables.
-Unlike the original collation, `utf8mb4_unicode_ci` ignores trailing spaces in
-comparisons. Resolve any email duplicates under the target collation before
-running the migration. MySQL rejects conflicting unique keys without merging data.
-
-The password rename migration changes `users.password_hash` to `users.password`
-without changing stored hashes, column type, nullability or collation.
-
-To revert the latest migration in a disposable local database:
-
-```sh
-pnpm db:revert
-```
-
-The password rename migration's rollback restores the `password_hash` column name.
-Reverting the collation migration restores `utf8mb4_0900_ai_ci`. Reverting the
-initial migration drops `tasks` before `users` and deletes their data.
-MySQL DDL is not transactional; if a migration fails partway, inspect the
-schema before retrying. Do not use rollback or delete a volume containing data
-you need to keep.
-
-## Verify database integration and persistence
-
-Use a separate disposable database for the integration suite. Copy `.env.example`
-to `.env.test`, choose different passwords, set `MYSQL_DATABASE` to a name ending
-in `_test`, and set `MYSQL_PORT` to an unused port. Do not migrate this test database
-first: the suite verifies migration from an empty database, repeat execution,
-constraints, indexes, UTC timestamps, rollback, Nest DI, pool cleanup, and data
-survival across application restarts.
-
-```sh
-docker compose -p cloud-db-test --env-file .env.test up -d --wait
-pnpm exec node --env-file=.env.test node_modules/vitest/vitest.mjs run --config vitest.config.e2e.ts
-docker compose -p cloud-db-test --env-file .env.test down
-```
-
-The suite uses only a database whose name ends in `_test`, and its rollback removes
-the application tables afterward. The normal `pnpm test:e2e` command also works
-when the same test variables are supplied in the shell environment.
-
-To demonstrate Docker volume persistence with the local development database,
-apply migrations, start the app, then open a MySQL session:
-
-```sh
-docker compose exec database sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" "$MYSQL_DATABASE"'
-```
-
-Insert a recognizable user and task, then exit the MySQL session:
-
-```sql
-INSERT INTO users (email, password) VALUES ('persistence@example.com', 'test-only-hash');
-INSERT INTO tasks (user_id, title)
-SELECT id, 'Volume persistence check' FROM users WHERE email = 'persistence@example.com';
-exit
-```
-
-Stop the application, recreate the MySQL container, then restart the application:
-
-```sh
-docker compose up -d --force-recreate --wait
-pnpm start
-```
-
-Open the same MySQL session again and confirm the task still exists:
-
-```sql
-SELECT tasks.id, tasks.title FROM tasks
-JOIN users ON users.id = tasks.user_id WHERE users.email = 'persistence@example.com';
-DELETE FROM users WHERE email = 'persistence@example.com';
-```
-
-The named volume survives container recreation and `docker compose down`.
-`docker compose down --volumes` deletes that stored database. Verification evidence
-for CLOUD-6 is recorded in [docs/cloud-6-verification.md](./docs/cloud-6-verification.md).
-
-## Docker packaging and containerized operation
-
-The application is containerized using a multi-stage Docker build targeting Node 24 and Alpine Linux.
-
-Build the tagged image:
-
-```sh
-docker build -t cloud-computing:1.0.0 -t cloud-computing:latest .
-```
-
-Start the application and MySQL services together using Docker Compose:
-
-```sh
+docker build -t cloud-computing:1.0.0 .
 docker compose up -d
-```
-
-Run database migrations and sample seeder inside the running application container:
-
-```sh
 docker compose exec app node dist/database/migrate.js up
 docker compose exec app node dist/database/seed.js
-```
-
-Verify service availability via the HTTP health endpoint:
-
-```sh
 curl http://localhost:3000/health
 ```
 
-To stop services while preserving the database volume:
+`docker compose down` stops the services and keeps the database volume.
+`docker compose down --volumes` also deletes the data.
+
+## Configuration
+
+Sample values are in [.env.example](./.env.example). The app loads `.env` from
+the project root; variables already set in the environment take precedence.
+
+| Variable                       | Purpose                                     |
+| ------------------------------ | ------------------------------------------- |
+| `PORT`                         | HTTP port (default `3000`)                  |
+| `MYSQL_HOST`, `MYSQL_PORT`     | Database host and port                      |
+| `MYSQL_DATABASE`               | Database name                               |
+| `MYSQL_USER`, `MYSQL_PASSWORD` | Application database account                |
+| `MYSQL_ROOT_PASSWORD`          | Used only to initialize the MySQL container |
+| `JWT_SECRET`                   | Token signing key (required)                |
+| `JWT_EXPIRES_IN`               | Token lifetime in seconds (default `3600`)  |
+| `SEED_PASSWORD`                | Password for sample accounts, 8–72 bytes    |
+
+Never commit `.env` files or real credentials.
+
+## API
+
+- `POST /api/v1/auth/register`, `POST /api/v1/auth/login`
+- `GET|POST /api/v1/tasks`, `GET|PATCH|DELETE /api/v1/tasks/:id` (requires a
+  bearer token)
+- `GET /health`: returns `200` when the database is reachable, `503` otherwise
+
+Full contract: [docs/api-spec.md](./docs/api-spec.md).
+
+## Database
+
+The schema is defined in [docs/database-design.md](./docs/database-design.md)
+and created by migrations in `src/database/migrations/`. Schema synchronization
+is disabled and the app does not run migrations on startup.
+
+| Command           | Purpose                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `pnpm db:migrate` | Apply pending migrations                                                                    |
+| `pnpm db:revert`  | Revert the latest migration (may delete data)                                               |
+| `pnpm db:seed`    | Create sample accounts `alice.seed@example.test` and `bob.seed@example.test`; safe to rerun |
+
+The MySQL server must use UTC (`default-time-zone='+00:00'`); the Compose service
+already does.
+
+## Tests and checks
+
+| Command             | Purpose                     |
+| ------------------- | --------------------------- |
+| `pnpm test`         | Unit and frontend tests     |
+| `pnpm test:e2e`     | End-to-end tests with MySQL |
+| `pnpm lint`         | Type-aware lint             |
+| `pnpm format:check` | Check formatting            |
+
+End-to-end tests need a separate, empty database whose name ends in `_test`.
+Create `.env.test` from `.env.example` with that database name and a free port,
+then run:
 
 ```sh
-docker compose down
+docker compose -p cloud-db-test --env-file .env.test up -d --wait database
+pnpm exec node --env-file=.env.test node_modules/vitest/vitest.mjs run --config vitest.config.e2e.ts
+docker compose -p cloud-db-test --env-file .env.test down --volumes
 ```
 
-Verification details and two-person testing evidence are documented in
-[docs/cloud-15-verification.md](./docs/cloud-15-verification.md).
+## Logs
 
-## Development commands
+The app logs to stdout. With Docker Compose: `docker compose logs -f app`.
 
-| Command             | Purpose                                 |
-| ------------------- | --------------------------------------- |
-| `pnpm format`       | Format files with Oxfmt                 |
-| `pnpm format:check` | Check formatting without changing files |
-| `pnpm lint`         | Run type-aware Oxlint checks            |
-| `pnpm lint:fix`     | Apply automatic lint fixes              |
-| `pnpm test`         | Run unit tests                          |
-| `pnpm test:e2e`     | Run end-to-end tests                    |
-| `pnpm test:cov`     | Run tests with coverage                 |
+## Contributing
 
-Unit tests use `*.spec.ts`; end-to-end tests use `*.e2e-spec.ts`. Their suite
-configuration is defined in `vitest.config.ts` and `vitest.config.e2e.ts`.
-
-## Collaboration
-
-Work items and assignments are managed in the **Điện toán đám mây** project on
-Plane.so. Source code is hosted on [GitHub](https://github.com/chittng/cloud-computing).
-Read [AGENTS.md](./AGENTS.md) for the shared workflow, branch naming convention,
-completion checklists, and review process.
+Work items are tracked in the **Điện toán đám mây** project on Plane. Read
+[AGENTS.md](./AGENTS.md) for the workflow, branch naming and review rules.

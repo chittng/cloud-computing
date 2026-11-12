@@ -1,23 +1,25 @@
 import { Module } from "@nestjs/common";
-import { DatabaseModule } from "../database/database.module.ts";
+import { ConfigService } from "@nestjs/config";
+import { APP_GUARD } from "@nestjs/core";
+import { JwtModule } from "@nestjs/jwt";
+import type { Environment } from "../config/environment.ts";
+import { UsersModule } from "../users/users.module.ts";
 import { AuthController } from "./auth.controller.ts";
 import { AuthGuard } from "./auth.guard.ts";
-import { AuthRepositoryPort, MysqlAuthRepository } from "./auth.repository.ts";
 import { AuthService } from "./auth.service.ts";
-import { JwtService } from "./jwt.service.ts";
 
 @Module({
-  imports: [DatabaseModule],
-  controllers: [AuthController],
-  providers: [
-    JwtService,
-    AuthService,
-    AuthGuard,
-    {
-      provide: AuthRepositoryPort,
-      useClass: MysqlAuthRepository,
-    },
+  imports: [
+    UsersModule,
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Environment, true>) => ({
+        secret: config.get("JWT_SECRET", { infer: true }),
+        signOptions: { expiresIn: config.get("JWT_EXPIRES_IN", { infer: true }) },
+      }),
+    }),
   ],
-  exports: [JwtService, AuthGuard, AuthRepositoryPort],
+  controllers: [AuthController],
+  providers: [AuthService, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AuthModule {}

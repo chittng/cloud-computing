@@ -1,45 +1,38 @@
-import { loadRootEnvFile } from "../common/env-file.ts";
 import type { DataSourceOptions } from "typeorm";
+import type { Environment } from "../config/environment.ts";
+import { Task } from "../tasks/task.entity.ts";
+import { User } from "../users/user.entity.ts";
 import { InitialSchema1793577600000 } from "./migrations/1793577600000-initial-schema.ts";
 import { UnicodeCollation1793836800000 } from "./migrations/1793836800000-unicode-collation.ts";
 import { RenamePassword1793836860000 } from "./migrations/1793836860000-rename-password.ts";
 
-export function databaseOptions(env: NodeJS.ProcessEnv = process.env): DataSourceOptions {
-  const required = (name: string): string => {
-    const value = env[name];
-    if (!value?.trim()) throw new Error(`${name} must be set`);
-    return value;
-  };
-  const port = Number(env.MYSQL_PORT ?? "3306");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("MYSQL_PORT must be an integer between 1 and 65535");
-  }
+type DatabaseEnvironment = Pick<
+  Environment,
+  "MYSQL_HOST" | "MYSQL_PORT" | "MYSQL_DATABASE" | "MYSQL_USER" | "MYSQL_PASSWORD"
+>;
 
+/** Shared by the Nest app and the TypeORM CLI data source. The schema is owned by migrations. */
+export function databaseOptions(env: DatabaseEnvironment): DataSourceOptions {
   return {
     type: "mysql",
-    host: env.MYSQL_HOST ?? "127.0.0.1",
-    port,
-    username: required("MYSQL_USER"),
-    password: required("MYSQL_PASSWORD"),
-    database: required("MYSQL_DATABASE"),
+    host: env.MYSQL_HOST,
+    port: env.MYSQL_PORT,
+    database: env.MYSQL_DATABASE,
+    username: env.MYSQL_USER,
+    password: env.MYSQL_PASSWORD,
     charset: "utf8mb4_unicode_ci",
+    // The MySQL server runs in UTC; read and write DATETIME values as UTC.
     timezone: "Z",
-    supportBigNumbers: true,
-    bigNumberStrings: true,
+    // Return BIGINT ids as numbers while they fit in a safe integer.
+    bigNumberStrings: false,
+    // Keep DATE columns as "YYYY-MM-DD" strings instead of local-midnight Date objects.
     dateStrings: ["DATE"],
-    synchronize: false,
-    migrationsRun: false,
+    entities: [User, Task],
     migrations: [
       InitialSchema1793577600000,
       UnicodeCollation1793836800000,
       RenamePassword1793836860000,
     ],
-    migrationsTransactionMode: "none",
-    logging: false,
+    synchronize: false,
   };
-}
-
-export function loadDatabaseOptions(): DataSourceOptions {
-  loadRootEnvFile();
-  return databaseOptions();
 }

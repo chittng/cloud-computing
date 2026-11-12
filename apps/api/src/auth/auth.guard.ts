@@ -1,64 +1,44 @@
 import {
   type CanActivate,
-  createParamDecorator,
   type ExecutionContext,
-  HttpStatus,
-  Inject,
   Injectable,
+  UnauthorizedException,
 } from "@nestjs/common";
-import { ApiException } from "../common/api-error.ts";
-import { AuthRepositoryPort } from "./auth.repository.ts";
-import type { AuthenticatedRequest, AuthenticatedUser } from "./auth.types.ts";
-import { JwtService } from "./jwt.service.ts";
+import { Reflector } from "@nestjs/core";
+import { JwtService } from "@nestjs/jwt";
+import type { Request } from "express";
+import type { AuthenticatedRequest, JwtPayload } from "./current-user.decorator.ts";
+import { IS_PUBLIC_KEY } from "./public.decorator.ts";
 
-const BEARER_HEADER_PATTERN = /^Bearer\s+(\S+)$/i;
-
-/** Validates the Bearer JWT and ensures the referenced user still exists in MySQL. */
+/** Registered globally: every route needs a valid bearer token unless marked @Public(). */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
-    @Inject(JwtService) private readonly jwtService: JwtService,
-    @Inject(AuthRepositoryPort) private readonly authRepository: AuthRepositoryPort,
+    private readonly jwtService: JwtService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const rawHeader = request.headers.authorization;
-    if (typeof rawHeader !== "string") {
-      throw this.unauthorized();
-    }
+    const token = extractBearerToken(request);
+    if (!token) throw new UnauthorizedException();
 
-    const match = BEARER_HEADER_PATTERN.exec(rawHeader.trim());
-    const token = match?.[1];
-    if (!token) {
-      throw this.unauthorized();
+    try {
+      request.user = await this.jwtService.verifyAsync<JwtPayload>(token);
+    } catch {
+      throw new UnauthorizedException();
     }
-
-    const verified = this.jwtService.verifyToken(token);
-    const user = await this.authRepository.findById(verified.userId);
-    if (!user) {
-      throw this.unauthorized();
-    }
-
-    request.user = user;
     return true;
-  }
-
-  private unauthorized(): ApiException {
-    return new ApiException(
-      HttpStatus.UNAUTHORIZED,
-      "UNAUTHORIZED",
-      "Yêu cầu xác thực hoặc phiên đăng nhập đã hết hạn",
-    );
   }
 }
 
-export const CurrentUser = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): AuthenticatedUser => {
-    const request = ctx.switchToHttp().getRequest<AuthenticatedRequest>();
-    if (!request.user) {
-      throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Chưa đăng nhập");
-    }
-    return request.user;
-  },
-);
+function extractBearerToken(request: Request): string | undefined {
+  const [type, token] = request.headers.authorization?.split(" ") ?? [];
+  return type === "Bearer" ? token : undefined;
+}

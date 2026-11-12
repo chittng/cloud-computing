@@ -5,62 +5,49 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Inject,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
-  Res,
-  UseGuards,
 } from "@nestjs/common";
-import type { Response } from "express";
-import { AuthGuard, CurrentUser } from "../auth/auth.guard.ts";
-import type { AuthenticatedUser } from "../auth/auth.types.ts";
+import { CurrentUser, type JwtPayload } from "../auth/current-user.decorator.ts";
+import { CreateTaskDto } from "./dto/create-task.dto.ts";
+import { ListTasksQueryDto } from "./dto/list-tasks-query.dto.ts";
+import { UpdateTaskDto } from "./dto/update-task.dto.ts";
 import { TasksService } from "./tasks.service.ts";
-import type { TaskDto, TaskListResponse } from "./tasks.types.ts";
 
-@Controller("api/v1/tasks")
-@UseGuards(AuthGuard)
+@Controller("tasks")
 export class TasksController {
-  constructor(@Inject(TasksService) private readonly tasksService: TasksService) {}
-
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  async create(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() body: unknown,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<TaskDto> {
-    const created = await this.tasksService.createTask(user.id, body);
-    response.setHeader("Location", `/api/v1/tasks/${created.id}`);
-    return created;
-  }
+  constructor(private readonly tasksService: TasksService) {}
 
   @Get()
-  list(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: Record<string, unknown>,
-  ): Promise<TaskListResponse> {
-    return this.tasksService.listTasks(user.id, query);
+  findAll(@CurrentUser() user: JwtPayload, @Query() query: ListTasksQueryDto) {
+    return this.tasksService.findAll(user.sub, query.status);
   }
 
   @Get(":id")
-  findOne(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string): Promise<TaskDto> {
-    return this.tasksService.getTaskById(user.id, id);
+  findOne(@CurrentUser() user: JwtPayload, @Param("id", ParseIntPipe) id: number) {
+    return this.tasksService.findOne(user.sub, id);
+  }
+
+  @Post()
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateTaskDto) {
+    return this.tasksService.create(user.sub, dto);
   }
 
   @Patch(":id")
   update(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param("id") id: string,
-    @Body() body: unknown,
-  ): Promise<TaskDto> {
-    return this.tasksService.updateTask(user.id, id, body);
+    @CurrentUser() user: JwtPayload,
+    @Param("id", ParseIntPipe) id: number,
+    @Body() dto: UpdateTaskDto,
+  ) {
+    return this.tasksService.update(user.sub, id, dto);
   }
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string): Promise<void> {
-    await this.tasksService.deleteTask(user.id, id);
+  remove(@CurrentUser() user: JwtPayload, @Param("id", ParseIntPipe) id: number) {
+    return this.tasksService.remove(user.sub, id);
   }
 }

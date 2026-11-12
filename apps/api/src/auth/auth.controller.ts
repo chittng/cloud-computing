@@ -1,20 +1,22 @@
-import { Body, Controller, HttpCode, HttpStatus, Inject, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
 import { AuthService } from "./auth.service.ts";
-import type { LoginResponse, RegisterResponse } from "./auth.types.ts";
+import { LoginDto } from "./dto/login.dto.ts";
+import { RegisterDto } from "./dto/register.dto.ts";
+import { Public } from "./public.decorator.ts";
 
-@Controller("api/v1/auth")
+@Public()
+@Controller("auth")
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post("register")
-  @HttpCode(HttpStatus.CREATED)
-  register(@Body() body: unknown): Promise<RegisterResponse> {
-    return this.authService.register(body);
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
   }
 
   @Post("login")
   @HttpCode(HttpStatus.OK)
-  login(@Body() body: unknown): Promise<LoginResponse> {
-    return this.authService.login(body);
+  login(@Body() dto: LoginDto) {
+    return this.authService.login(dto);
   }
 }

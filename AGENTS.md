@@ -10,7 +10,9 @@ This is a pnpm workspace; `pnpm-workspace.yaml` lists the packages.
   `apps/web/dist` in production.
 - `apps/api/src/database/migrations/`: Explicit TypeORM migrations; schema synchronization is disabled.
 - `apps/api/test/`: End-to-end tests.
-- `apps/web/`: React frontend (`@cloud-computing/web`).
+- `apps/web/`: React frontend (`@cloud-computing/web`). Feature code lives in
+  `src/features/`; `src/components/ui/` holds shadcn/ui components, added with
+  `pnpm dlx shadcn@latest add <component>` from `apps/web`.
 - `compose.yaml`: Local MySQL service and persistent volume. The shared `.env` stays at the
   repository root.
 
@@ -74,8 +76,16 @@ the contributor they are assisting.
 - Preserve the ESM and NodeNext setup.
 - Keep TypeScript strictness enabled. Resolve type errors instead of adding broad suppressions.
 - Follow NestJS module and dependency injection patterns.
+- Validate request bodies and query strings with class-validator DTOs; access data through
+  TypeORM entities and repositories.
 - Unit tests use `*.spec.ts`; end-to-end tests use `*.e2e-spec.ts`. The two Vitest configs define
   their separate suites.
+
+## Frontend conventions
+
+- Build UI from shadcn/ui components and forms with React Hook Form, Zod and the shadcn `Field`
+  components. Fetch and mutate server data with TanStack Query hooks.
+- Frontend tests use `*.test.tsx` with Testing Library and run in jsdom.
 
 ## Framework documentation
 

@@ -1,23 +1,19 @@
-import { Controller, Get, Inject, ServiceUnavailableException } from "@nestjs/common";
-import { DataSource } from "typeorm";
+import { Controller, Get } from "@nestjs/common";
+import { HealthCheck, HealthCheckService, TypeOrmHealthIndicator } from "@nestjs/terminus";
+import { Public } from "../auth/public.decorator.ts";
 
+@Public()
 @Controller("health")
 export class HealthController {
-  constructor(@Inject(DataSource) private readonly database: DataSource) {}
+  constructor(
+    private readonly health: HealthCheckService,
+    private readonly db: TypeOrmHealthIndicator,
+  ) {}
 
+  /** 200 while MySQL answers a ping, 503 otherwise. */
   @Get()
-  async check() {
-    const timestamp = new Date().toISOString();
-    try {
-      await this.database.query("SELECT 1");
-      return { status: "ok", database: "up", version: "v1.0", timestamp };
-    } catch {
-      throw new ServiceUnavailableException({
-        status: "error",
-        database: "down",
-        version: "v1.0",
-        timestamp,
-      });
-    }
+  @HealthCheck()
+  check() {
+    return this.health.check([async () => this.db.pingCheck("database").withTimeout(1000)]);
   }
 }

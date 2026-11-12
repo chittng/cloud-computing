@@ -1,12 +1,12 @@
-/node_modules/
+node_modules/
 
 .DS_Store
 
 /.idea/
 
-/dist/
-/coverage/
-/*.tsbuildinfo
+dist/
+coverage/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example

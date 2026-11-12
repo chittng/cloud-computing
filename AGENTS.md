@@ -4,10 +4,15 @@ A personal task management web app for a university Cloud Computing course.
 
 ## Project layout
 
-- `src/`: Application source code.
-- `src/database/migrations/`: Explicit TypeORM migrations; schema synchronization is disabled.
-- `test/`: End-to-end tests.
-- `compose.yaml`: Local MySQL service and persistent volume.
+This is a pnpm workspace; `pnpm-workspace.yaml` lists the packages.
+
+- `apps/api/`: NestJS backend (`@cloud-computing/api`). It serves the built frontend from
+  `apps/web/dist` in production.
+- `apps/api/src/database/migrations/`: Explicit TypeORM migrations; schema synchronization is disabled.
+- `apps/api/test/`: End-to-end tests.
+- `apps/web/`: React frontend (`@cloud-computing/web`).
+- `compose.yaml`: Local MySQL service and persistent volume. The shared `.env` stays at the
+  repository root.
 
 ## Project workflow
 
@@ -60,6 +65,7 @@ the contributor they are assisting.
 - Install dependencies with pnpm install --frozen-lockfile when manifests have not changed.
 - When adding or changing dependencies, use pnpm in the appropriate workspace package and include
   the updated pnpm-lock.yaml. Do not edit the lockfile by hand.
+- Root scripts delegate to the apps. Run app-specific scripts with `pnpm --filter <package name>`.
 - Use Oxfmt and Oxlint through the existing scripts. Their configuration files define formatting
   and lint rules; do not introduce a second formatter or linter without a task requirement.
 

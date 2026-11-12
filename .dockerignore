@@ -1,8 +1,8 @@
 # Dependency and build artifacts
-node_modules
-dist
-coverage
-*.tsbuildinfo
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
 
 # Sensitive files and credentials
 .env
@@ -19,7 +19,7 @@ coverage
 .vscode
 
 # Test suites and documentation
-test
+apps/api/test
 docs
 
 # Logs and linter configurations

@@ -14,7 +14,7 @@ import { configureHttpApp } from "../src/app.factory.ts";
 describe("MySQL integration (dedicated disposable *_test database)", () => {
   let source: DataSource;
   let app: INestApplicationContext | undefined;
-  let migrated = false;
+  let migrated = 0;
 
   beforeAll(async () => {
     if (!process.env.MYSQL_DATABASE?.endsWith("_test")) {
@@ -26,8 +26,8 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
     );
     expect(tables).toEqual([]);
     const applied = await source.runMigrations();
-    migrated = applied.length > 0;
-    expect(applied).toHaveLength(1);
+    migrated = applied.length;
+    expect(applied).toHaveLength(3);
   });
 
   afterAll(async () => {
@@ -35,7 +35,10 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
     if (source?.isInitialized) {
       try {
         if (migrated) {
-          await source.undoLastMigration();
+          while (migrated > 0) {
+            await source.undoLastMigration();
+            migrated--;
+          }
           const tables = await source.query<unknown[]>(
             "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('users', 'tasks')",
           );
@@ -53,16 +56,15 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
 
   it("seeds two users with valid hashes and owned tasks without overwriting on rerun", async () => {
     await seedData(source, "Test-only-password");
-    const first = await source.query<{ id: string; email: string; password_hash: string }[]>(
-      "SELECT id, email, password_hash FROM users WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test') ORDER BY email",
+    const first = await source.query<{ id: string; email: string; password: string }[]>(
+      "SELECT id, email, password FROM users WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test') ORDER BY email",
     );
     expect(first).toHaveLength(2);
-    for (const user of first)
-      expect(await compare("Test-only-password", user.password_hash)).toBe(true);
+    for (const user of first) expect(await compare("Test-only-password", user.password)).toBe(true);
     await seedData(source, "Different-password");
     expect(
       await source.query(
-        "SELECT id, email, password_hash FROM users WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test') ORDER BY email",
+        "SELECT id, email, password FROM users WHERE email IN ('alice.seed@example.test', 'bob.seed@example.test') ORDER BY email",
       ),
     ).toEqual(first);
     const tasks = await source.query<{ title: string }[]>(
@@ -83,6 +85,82 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
     }
   });
 
+  it("renames the password column without changing stored hashes and supports rollback", async () => {
+    await source.undoLastMigration();
+    migrated--;
+    await source.query(
+      "INSERT INTO users (email, password_hash) VALUES ('rename@example.com', 'existing-hash')",
+    );
+    const applied = await source.runMigrations();
+    migrated += applied.length;
+    expect(applied).toHaveLength(1);
+    expect(
+      await source.query("SELECT password FROM users WHERE email = 'rename@example.com'"),
+    ).toEqual([{ password: "existing-hash" }]);
+    await source.undoLastMigration();
+    migrated--;
+    expect(
+      await source.query("SELECT password_hash FROM users WHERE email = 'rename@example.com'"),
+    ).toEqual([{ password_hash: "existing-hash" }]);
+    const reapplied = await source.runMigrations();
+    migrated += reapplied.length;
+    expect(reapplied).toHaveLength(1);
+    await source.query("DELETE FROM users WHERE email = 'rename@example.com'");
+  });
+
+  it("upgrades existing data to unicode collation and supports rollback", async () => {
+    await source.undoLastMigration();
+    migrated--;
+    await source.undoLastMigration();
+    migrated--;
+    const [previous] = await source.query<{ TABLE_COLLATION: string }[]>(
+      "SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'",
+    );
+    expect(previous?.TABLE_COLLATION).toBe("utf8mb4_0900_ai_ci");
+    await source.query(
+      "INSERT INTO users (email, password_hash, display_name) VALUES ('collation@example.com', 'hash', 'Nguyễn 🌤️')",
+    );
+    await source.query(
+      "INSERT INTO tasks (user_id, title, description) SELECT id, 'Điện toán ☁️', 'Tiếng Việt' FROM users WHERE email = 'collation@example.com'",
+    );
+    const applied = await source.runMigrations();
+    migrated += applied.length;
+    expect(applied).toHaveLength(2);
+    const [database] = await source.query<{ collation: string; connection_collation: string }[]>(
+      "SELECT @@collation_database AS collation, @@collation_connection AS connection_collation",
+    );
+    expect(database).toEqual({
+      collation: "utf8mb4_unicode_ci",
+      connection_collation: "utf8mb4_unicode_ci",
+    });
+    const tables = await source.query<{ TABLE_COLLATION: string }[]>(
+      "SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('users', 'tasks')",
+    );
+    expect(tables).toHaveLength(2);
+    expect(tables.every((table) => table.TABLE_COLLATION === "utf8mb4_unicode_ci")).toBe(true);
+    expect(
+      await source.query(
+        "SELECT display_name, title, description FROM users JOIN tasks ON tasks.user_id = users.id WHERE email = 'collation@example.com'",
+      ),
+    ).toEqual([{ display_name: "Nguyễn 🌤️", title: "Điện toán ☁️", description: "Tiếng Việt" }]);
+    await expect(
+      source.query("INSERT INTO users (email, password) VALUES ('collation@example.com ', 'hash')"),
+    ).rejects.toMatchObject({ driverError: { code: "ER_DUP_ENTRY" } });
+    await source.undoLastMigration();
+    migrated--;
+    await source.undoLastMigration();
+    migrated--;
+    expect(
+      await source.query(
+        "SELECT display_name, title, description FROM users JOIN tasks ON tasks.user_id = users.id WHERE email = 'collation@example.com'",
+      ),
+    ).toEqual([{ display_name: "Nguyễn 🌤️", title: "Điện toán ☁️", description: "Tiếng Việt" }]);
+    const reapplied = await source.runMigrations();
+    migrated += reapplied.length;
+    expect(reapplied).toHaveLength(2);
+    await source.query("DELETE FROM users WHERE email = 'collation@example.com'");
+  });
+
   it("creates the designed columns, constraints and indexes", async () => {
     const columns = await source.query<
       {
@@ -92,11 +170,27 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
         IS_NULLABLE: string;
         COLUMN_DEFAULT: string | null;
         EXTRA: string;
+        COLLATION_NAME: string | null;
       }[]
     >(
-      "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('users', 'tasks')",
+      "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('users', 'tasks')",
     );
     expect(columns).toHaveLength(14);
+    expect(columns).toContainEqual(
+      expect.objectContaining({
+        TABLE_NAME: "users",
+        COLUMN_NAME: "password",
+        DATA_TYPE: "varchar",
+        IS_NULLABLE: "NO",
+        COLLATION_NAME: "utf8mb4_unicode_ci",
+      }),
+    );
+    expect(columns.some((column) => column.COLUMN_NAME === "password_hash")).toBe(false);
+    for (const column of columns.filter((column) => column.COLLATION_NAME !== null)) {
+      expect(column.COLLATION_NAME).toBe(
+        column.COLUMN_NAME === "status" ? "utf8mb4_bin" : "utf8mb4_unicode_ci",
+      );
+    }
     for (const table of ["users", "tasks"]) {
       expect(columns).toEqual(
         expect.arrayContaining([
@@ -151,7 +245,7 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
 
   it("enforces unique email, foreign keys, valid status/title and cascade deletion", async () => {
     await source.query(
-      "INSERT INTO users (email, password_hash) VALUES ('an@example.com', 'test-hash')",
+      "INSERT INTO users (email, password) VALUES ('an@example.com', 'test-hash')",
     );
     const [user] = await source.query<{ id: string }[]>(
       "SELECT id FROM users WHERE email = 'an@example.com'",
@@ -159,7 +253,7 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
     expect(user).toBeDefined();
     const id = user!.id;
     await expect(
-      source.query("INSERT INTO users (email, password_hash) VALUES ('AN@example.com', 'hash')"),
+      source.query("INSERT INTO users (email, password) VALUES ('AN@example.com', 'hash')"),
     ).rejects.toMatchObject({ driverError: { code: "ER_DUP_ENTRY" } });
     for (const status of ["PENDING", "invalid"]) {
       await expect(
@@ -188,7 +282,7 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
 
   it("keeps UTC timestamps and updates updated_at when data changes", async () => {
     await source.query(
-      "INSERT INTO users (email, password_hash, updated_at) VALUES ('time@example.com', 'hash', '2000-01-01 00:00:00')",
+      "INSERT INTO users (email, password, updated_at) VALUES ('time@example.com', 'hash', '2000-01-01 00:00:00')",
     );
     await source.query(
       "UPDATE users SET display_name = 'Updated' WHERE email = 'time@example.com'",
@@ -211,9 +305,7 @@ describe("MySQL integration (dedicated disposable *_test database)", () => {
   it("connects through Nest DI and retains data after restarting the application", async () => {
     app = await NestFactory.createApplicationContext(RootModule, { logger: false });
     const first = app.get(DataSource);
-    await first.query(
-      "INSERT INTO users (email, password_hash) VALUES ('restart@example.com', 'hash')",
-    );
+    await first.query("INSERT INTO users (email, password) VALUES ('restart@example.com', 'hash')");
     await first.query(
       "INSERT INTO tasks (user_id, title) SELECT id, 'Persistent task' FROM users WHERE email = 'restart@example.com'",
     );

@@ -11,7 +11,7 @@ import type { AuthenticatedUser, RegisterResponse, UserAuthRecord } from "./auth
 interface RawUserRow {
   id: string | number;
   email: string;
-  password_hash?: string;
+  password?: string;
   display_name: string | null;
   created_at: Date | string;
 }
@@ -39,18 +39,18 @@ export class MysqlAuthRepository extends AuthRepositoryPort {
 
   async findByEmail(email: string): Promise<UserAuthRecord | null> {
     const rows = await this.database.query<RawUserRow[]>(
-      "SELECT id, email, password_hash, display_name, created_at FROM users WHERE email = ? LIMIT 1",
+      "SELECT id, email, password, display_name, created_at FROM users WHERE email = ? LIMIT 1",
       [email],
     );
     const row = rows[0];
-    if (!row || typeof row.password_hash !== "string") {
+    if (!row || typeof row.password !== "string") {
       return null;
     }
 
     return {
       id: toSafePositiveId(row.id),
       email: row.email,
-      passwordHash: row.password_hash,
+      passwordHash: row.password,
       displayName: row.display_name,
       createdAt: formatUtcIsoTimestamp(row.created_at),
     };
@@ -80,7 +80,7 @@ export class MysqlAuthRepository extends AuthRepositoryPort {
   }): Promise<RegisterResponse> {
     try {
       const insertResult = await this.database.query<MysqlInsertHeader>(
-        "INSERT INTO users (email, password_hash, display_name) VALUES (?, ?, ?)",
+        "INSERT INTO users (email, password, display_name) VALUES (?, ?, ?)",
         [input.email, input.passwordHash, input.displayName],
       );
       const insertedId = toSafePositiveId(insertResult.insertId);
